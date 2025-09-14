@@ -217,7 +217,7 @@ class _SplashScreenState extends State<SplashScreen>
                                 SizedBox(height: 3.h),
                                 // App name
                                 Text(
-                                  'DistanceMeter',
+                                  'Jarak App',
                                   style: AppTheme
                                       .lightTheme.textTheme.headlineMedium
                                       ?.copyWith(
@@ -230,7 +230,7 @@ class _SplashScreenState extends State<SplashScreen>
                                 SizedBox(height: 1.h),
                                 // Tagline
                                 Text(
-                                  'Precision Measurement at Your Fingertips',
+                                  'Pengukur Jarak Digital Pintar ',
                                   style: AppTheme
                                       .lightTheme.textTheme.bodyMedium
                                       ?.copyWith(
@@ -354,7 +354,7 @@ class _SplashScreenState extends State<SplashScreen>
                       ),
                       SizedBox(height: 1.h),
                       Text(
-                        'Computer Vision • Machine Learning • Precision',
+                        'Aftaza • Computer Vision • Arif',
                         style:
                             AppTheme.lightTheme.textTheme.labelSmall?.copyWith(
                           color: AppTheme.lightTheme.colorScheme.onPrimary

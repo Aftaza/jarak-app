@@ -18,7 +18,7 @@ class AppRoutes {
   static Map<String, WidgetBuilder> routes = {
     initial: (context) => const SplashScreen(),
     splash: (context) => const SplashScreen(),
-    // settings: (context) => const SettingsScreen(),
+    settings: (context) => const SettingsScreen(),
     cameraPermissionRequest: (context) => const CameraPermissionRequest(),
     // calibrationSetup: (context) => const CalibrationSetup(),
     // measurementResults: (context) => const MeasurementResults(),

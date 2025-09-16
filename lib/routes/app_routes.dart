@@ -21,7 +21,7 @@ class AppRoutes {
     settings: (context) => const SettingsScreen(),
     cameraPermissionRequest: (context) => const CameraPermissionRequest(),
     calibrationSetup: (context) => const CalibrationSetup(),
-    // measurementResults: (context) => const MeasurementResults(),
+    measurementResults: (context) => const MeasurementResults(),
     mainMeasurement: (context) => const MainMeasurementScreen(),
   };
 }

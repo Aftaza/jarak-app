@@ -19,9 +19,9 @@ class AppRoutes {
     initial: (context) => const SplashScreen(),
     splash: (context) => const SplashScreen(),
     // settings: (context) => const SettingsScreen(),
-    // cameraPermissionRequest: (context) => const CameraPermissionRequest(),
+    cameraPermissionRequest: (context) => const CameraPermissionRequest(),
     // calibrationSetup: (context) => const CalibrationSetup(),
     // measurementResults: (context) => const MeasurementResults(),
-    // mainMeasurement: (context) => const MainMeasurementScreen(),
+    mainMeasurement: (context) => const MainMeasurementScreen(),
   };
 }

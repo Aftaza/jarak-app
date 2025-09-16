@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
@@ -113,6 +114,18 @@ class _SplashScreenState extends State<SplashScreen>
       _initializationStatus = 'Checking camera permissions...';
       _progress = 0.5;
     });
+    
+    // Check for camera permission
+    var status = await Permission.camera.status;
+    
+    if (!status.isGranted) {
+      // Navigate to camera permission screen if not granted
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, '/camera-permission-request');
+      }
+      return;
+    }
+    
     await Future.delayed(const Duration(milliseconds: 400));
   }
 
@@ -133,8 +146,9 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   void _navigateToNextScreen() {
-    // For demo purposes, navigate to main measurement screen
-    // In real implementation, check permissions and navigate accordingly
+    // Check camera permissions before navigating
+    // In a real implementation, we would check permissions here
+    // For now, we're navigating to the main measurement screen
     Navigator.pushReplacementNamed(context, '/main-measurement-screen');
   }
 

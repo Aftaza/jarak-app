@@ -79,7 +79,7 @@ class _CameraPermissionRequestState extends State<CameraPermissionRequest>
   }
 
   void _navigateToMeasurementScreen() {
-    Navigator.pushReplacementNamed(context, '/main-measurement-screen');
+    Navigator.pushReplacementNamed(context, '/splash-screen');
   }
 
   void _showPermissionDeniedDialog() {

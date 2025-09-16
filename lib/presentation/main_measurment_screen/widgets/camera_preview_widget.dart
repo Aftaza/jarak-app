@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
@@ -8,6 +10,7 @@ class CameraPreviewWidget extends StatelessWidget {
   final List<Offset> selectedPoints;
   final Function(Offset) onPointSelected;
   final bool isCapturing;
+  final Float32List? depthMap;
 
   const CameraPreviewWidget({
     Key? key,
@@ -15,6 +18,7 @@ class CameraPreviewWidget extends StatelessWidget {
     required this.selectedPoints,
     required this.onPointSelected,
     required this.isCapturing,
+    this.depthMap,
   }) : super(key: key);
 
   @override
@@ -58,6 +62,7 @@ class CameraPreviewWidget extends StatelessWidget {
                 points: selectedPoints,
                 primaryColor: AppTheme.lightTheme.primaryColor,
                 accentColor: AppTheme.accentLight,
+                depthMap: depthMap,
               ),
             ),
           ),
@@ -103,11 +108,13 @@ class MeasurementOverlayPainter extends CustomPainter {
   final List<Offset> points;
   final Color primaryColor;
   final Color accentColor;
+  final Float32List? depthMap;
 
   MeasurementOverlayPainter({
     required this.points,
     required this.primaryColor,
     required this.accentColor,
+    this.depthMap,
   });
 
   @override
@@ -166,6 +173,38 @@ class MeasurementOverlayPainter extends CustomPainter {
 
       // Draw measurement line with arrows
       _drawArrowLine(canvas, points[0], points[1], linePaint);
+      
+      // If we have depth information, display it
+      if (depthMap != null && depthMap!.isNotEmpty) {
+        // Get depth values at both points
+        final normX1 = points[0].dx / size.width;
+        final normY1 = points[0].dy / size.height;
+        final normX2 = points[1].dx / size.width;
+        final normY2 = points[1].dy / size.height;
+        
+        // Simple depth visualization (in a real app, this would be more sophisticated)
+        final depthText = "Depth info available";
+        final depthTextPainter = TextPainter(
+          text: TextSpan(
+            text: depthText,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              background: Paint()..color = Colors.black.withValues(alpha: 0.7),
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        depthTextPainter.layout();
+        depthTextPainter.paint(
+          canvas,
+          Offset(
+            (points[0].dx + points[1].dx) / 2 - depthTextPainter.width / 2,
+            (points[0].dy + points[1].dy) / 2 - 30,
+          ),
+        );
+      }
     }
   }
 

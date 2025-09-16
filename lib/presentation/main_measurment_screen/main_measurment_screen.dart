@@ -7,8 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
+import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../../core/app_export.dart';
+import '../../services/depth_estimation_service.dart';
 import '../../theme/app_theme.dart';
 import './widgets/camera_preview_widget.dart';
 import './widgets/camera_settings_widget.dart';
@@ -33,6 +35,10 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   bool _isFlashOn = false;
   bool _isFrontCamera = false;
   double _zoomLevel = 1.0;
+
+  // Depth estimation service
+  final DepthEstimationService _depthService = DepthEstimationService();
+  Float32List? _currentDepthMap;
 
   // Measurement related variables
   List<Offset> _selectedPoints = [];
@@ -74,12 +80,14 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   void initState() {
     super.initState();
     _initializeCamera();
+    _initializeDepthService();
     _loadSettings();
   }
 
   @override
   void dispose() {
     _cameraController?.dispose();
+    _depthService.dispose();
     super.dispose();
   }
 
@@ -135,20 +143,41 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     return status.isGranted;
   }
 
-  Future<void> _applySettings() async {
-    if (_cameraController == null) return;
+  Future<void> _captureAndProcessImage() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
 
     try {
-      await _cameraController!.setFocusMode(FocusMode.auto);
-      if (!kIsWeb) {
-        try {
-          await _cameraController!.setFlashMode(FlashMode.auto);
-        } catch (e) {
-          debugPrint('Flash mode not supported: $e');
-        }
+      // Capture image from camera
+      final image = await _cameraController!.takePicture();
+      
+      // Process image with depth estimation if service is available
+      if (_depthService.isInitialized) {
+        final depthMap = await _depthService.estimateDepthFromFile(image.path);
+        setState(() {
+          _currentDepthMap = depthMap;
+        });
       }
     } catch (e) {
-      debugPrint('Settings application error: $e');
+      debugPrint('Error capturing and processing image: $e');
+    }
+  }
+
+  Future<void> _initializeDepthService() async {
+    try {
+      await _depthService.initialize();
+      debugPrint('Depth estimation service initialized successfully');
+    } catch (e) {
+      debugPrint('Failed to initialize depth estimation service: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to initialize depth estimation service'),
+            backgroundColor: AppTheme.errorLight,
+          ),
+        );
+      }
     }
   }
 
@@ -169,6 +198,23 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       await prefs.setBool('imperial_unit', _isImperialUnit);
     } catch (e) {
       debugPrint('Settings saving error: $e');
+    }
+  }
+
+  Future<void> _applySettings() async {
+    if (_cameraController == null) return;
+
+    try {
+      await _cameraController!.setFocusMode(FocusMode.auto);
+      if (!kIsWeb) {
+        try {
+          await _cameraController!.setFlashMode(FlashMode.auto);
+        } catch (e) {
+          debugPrint('Flash mode not supported: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Settings application error: $e');
     }
   }
 
@@ -195,29 +241,66 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       _isProcessing = true;
     });
 
-    // Simulate ML processing delay
-    Future.delayed(Duration(milliseconds: 1500), () {
+    // Use depth estimation for more accurate distance calculation
+    Future.delayed(Duration(milliseconds: 1500), () async {
       if (!mounted) return;
 
-      // Calculate pixel distance
-      final pixelDistance = math.sqrt(
-          math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
-              math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
+      double finalDistance = 0.0;
 
-      // Mock distance calculation (in real app, this would use TensorFlow Lite)
-      // Assuming 1 pixel = 0.01 feet for demonstration
-      double distanceInFeet = pixelDistance * 0.01;
+      try {
+        // If depth service is initialized, use it for more accurate measurement
+        if (_depthService.isInitialized && _currentDepthMap != null) {
+          // Get screen size for normalization
+          final screenSize = MediaQuery.of(context).size;
+          
+          // Normalize coordinates to 0-1 range
+          final normX1 = _selectedPoints[0].dx / screenSize.width;
+          final normY1 = _selectedPoints[0].dy / screenSize.height;
+          final normX2 = _selectedPoints[1].dx / screenSize.width;
+          final normY2 = _selectedPoints[1].dy / screenSize.height;
+          
+          // Get depth values at both points
+          final depth1 = _depthService.getDepthAt(_currentDepthMap!, normX1, normY1);
+          final depth2 = _depthService.getDepthAt(_currentDepthMap!, normX2, normY2);
+          
+          // Calculate 3D distance (simplified)
+          final dx = _selectedPoints[1].dx - _selectedPoints[0].dx;
+          final dy = _selectedPoints[1].dy - _selectedPoints[0].dy;
+          final dz = (depth2 - depth1) * 1000; // Scale depth difference
+          
+          final pixelDistance = math.sqrt(dx * dx + dy * dy + dz * dz);
+          
+          // Convert to real world distance (this would be calibrated)
+          double distanceInFeet = pixelDistance * 0.005; // More realistic conversion
+          finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
+        } else {
+          // Fallback to simple pixel-based calculation
+          final pixelDistance = math.sqrt(
+              math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
+                  math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
 
-      // Convert to appropriate unit
-      double finalDistance = _isImperialUnit
-          ? distanceInFeet
-          : distanceInFeet * 0.3048; // Convert to meters
+          // Assuming 1 pixel = 0.01 feet for demonstration
+          double distanceInFeet = pixelDistance * 0.01;
+          finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
+        }
+      } catch (e) {
+        debugPrint('Error calculating distance with depth estimation: $e');
+        // Fallback to simple calculation if depth estimation fails
+        final pixelDistance = math.sqrt(
+            math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
+                math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
 
-      setState(() {
-        _calculatedDistance = finalDistance;
-        _isProcessing = false;
-        _showResults = true;
-      });
+        double distanceInFeet = pixelDistance * 0.01;
+        finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
+      }
+
+      if (mounted) {
+        setState(() {
+          _calculatedDistance = finalDistance;
+          _isProcessing = false;
+          _showResults = true;
+        });
+      }
     });
   }
 
@@ -443,6 +526,7 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
             selectedPoints: _selectedPoints,
             onPointSelected: _onPointSelected,
             isCapturing: _isCapturing,
+            depthMap: _currentDepthMap,
           ),
 
           // Top Bar

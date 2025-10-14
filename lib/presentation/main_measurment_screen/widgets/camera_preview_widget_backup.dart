@@ -4,7 +4,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/app_export.dart';
-import '../../../theme/app_theme.dart';
 
 class CameraPreviewWidget extends StatelessWidget {
   final CameraController? cameraController;
@@ -13,8 +12,6 @@ class CameraPreviewWidget extends StatelessWidget {
   final bool isCapturing;
   final Float32List? depthMap;
   final Uint8List? staticImageBytes;
-  final double? calculatedDistance; // Parameter baru untuk distance
-  final String? unit; // Parameter baru untuk unit
 
   const CameraPreviewWidget({
     Key? key,
@@ -24,8 +21,6 @@ class CameraPreviewWidget extends StatelessWidget {
     required this.isCapturing,
     this.depthMap,
     this.staticImageBytes,
-    this.calculatedDistance, // Parameter baru
-    this.unit, // Parameter baru
   }) : super(key: key);
 
   @override
@@ -63,8 +58,6 @@ class CameraPreviewWidget extends StatelessWidget {
                       primaryColor: AppTheme.lightTheme.primaryColor,
                       accentColor: AppTheme.accentLight,
                       depthMap: depthMap,
-                      calculatedDistance: calculatedDistance, // Teruskan parameter distance
-                      unit: unit, // Teruskan parameter unit
                     ),
                   ),
                 ),
@@ -77,7 +70,7 @@ class CameraPreviewWidget extends StatelessWidget {
                         padding: EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -85,13 +78,15 @@ class CameraPreviewWidget extends StatelessWidget {
                             Icon(
                               Icons.touch_app,
                               color: Colors.white,
-                              size: 48,
+                              size: 32,
                             ),
                             SizedBox(height: 8),
                             Text(
-                              selectedPoint == null
-                                  ? 'Tap to select point for measurement'
-                                  : 'Point selected! Processing distance...',
+                              selectedPoints.isEmpty
+                                  ? 'Tap to select first point'
+                                  : selectedPoints.length == 1
+                                  ? 'Tap to select second point'
+                                  : 'Measuring distance...',
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
@@ -110,23 +105,27 @@ class CameraPreviewWidget extends StatelessWidget {
         );
       }
 
-      // No camera and no static image
+      // Fallback placeholder when neither camera nor image is available
       return Container(
+        width: double.infinity,
+        height: double.infinity,
         color: Colors.black,
         child: Center(
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.camera_alt_outlined, color: Colors.grey, size: 64),
-              SizedBox(height: 16),
-              Text(
-                'Camera not available',
-                style: TextStyle(color: Colors.grey, fontSize: 18),
+              CustomIconWidget(
+                iconName: 'photo',
+                color: Colors.white70,
+                size: 64,
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
-                'Please load an image to continue',
-                style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                'Camera unavailable. Use Load Image to test on desktop.',
+                style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white70,
+                ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -134,83 +133,71 @@ class CameraPreviewWidget extends StatelessWidget {
       );
     }
 
-    // Live camera preview
-    return GestureDetector(
-      onTapDown: isCapturing
-          ? (details) {
-              final RenderBox renderBox =
-                  context.findRenderObject() as RenderBox;
-              final localPosition = renderBox.globalToLocal(
-                details.globalPosition,
-              );
-              onPointSelected(localPosition);
-            }
-          : null,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Camera preview
-          CameraPreview(cameraController!),
+    return Stack(
+      children: [
+        // Camera Preview
+        Positioned.fill(
+          child: GestureDetector(
+            onTapDown: isCapturing
+                ? (details) {
+                    final RenderBox renderBox =
+                        context.findRenderObject() as RenderBox;
+                    final localPosition = renderBox.globalToLocal(
+                      details.globalPosition,
+                    );
+                    onPointSelected(localPosition);
+                  }
+                : null,
+            child: CameraPreview(cameraController!),
+          ),
+        ),
 
-          // Depth map overlay (semi-transparent)
-          if (depthMap != null && depthMap!.isNotEmpty)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: DepthMapOverlayPainter(depthMap: depthMap!),
+        // Point Markers and Measurement Line
+        if (selectedPoints.isNotEmpty)
+          Positioned.fill(
+            child: CustomPaint(
+              painter: MeasurementOverlayPainter(
+                points: selectedPoints,
+                primaryColor: AppTheme.lightTheme.primaryColor,
+                accentColor: AppTheme.accentLight,
+                depthMap: depthMap,
               ),
             ),
+          ),
 
-          // Selected point overlay
-          if (selectedPoint != null)
-            Positioned.fill(
-              child: CustomPaint(
-                painter: MeasurementOverlayPainter(
-                  point: selectedPoint,
-                  primaryColor: AppTheme.lightTheme.primaryColor,
-                  accentColor: AppTheme.accentLight,
-                  depthMap: depthMap,
-                  calculatedDistance: calculatedDistance, // Teruskan parameter distance
-                  unit: unit, // Teruskan parameter unit
+        // Capture Mode Overlay
+        if (isCapturing)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.3),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CustomIconWidget(
+                      iconName: 'touch_app',
+                      color: Colors.white,
+                      size: 48,
+                    ),
+                    SizedBox(height: 16),
+                    Text(
+                      selectedPoints.isEmpty
+                          ? 'Tap to select first point (top of object)'
+                          : selectedPoints.length == 1
+                          ? 'Tap to select second point (bottom of object)'
+                          : 'Processing measurement...',
+                      style: AppTheme.lightTheme.textTheme.bodyLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ),
               ),
             ),
-
-          // Capture mode overlay
-          if (isCapturing)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.2),
-                child: Center(
-                  child: Container(
-                    padding: EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.7),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.touch_app, color: Colors.white, size: 48),
-                        SizedBox(height: 8),
-                        Text(
-                          selectedPoint == null
-                              ? 'Tap to select point for measurement'
-                              : 'Point selected! Processing distance...',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
+          ),
+      ],
     );
   }
 }
@@ -220,16 +207,12 @@ class MeasurementOverlayPainter extends CustomPainter {
   final Color primaryColor;
   final Color accentColor;
   final Float32List? depthMap;
-  final double? calculatedDistance; // Tambah parameter untuk distance yang sudah dihitung
-  final String? unit; // Tambah parameter untuk unit
 
   MeasurementOverlayPainter({
     required this.point, // Changed parameter name
     required this.primaryColor,
     required this.accentColor,
     this.depthMap,
-    this.calculatedDistance, // Parameter baru
-    this.unit, // Parameter baru
   });
 
   @override
@@ -261,14 +244,14 @@ class MeasurementOverlayPainter extends CustomPainter {
 
     // Draw crosshair lines
     const lineLength = 15.0;
-
+    
     // Horizontal line
     canvas.drawLine(
       Offset(targetPoint.dx - lineLength, targetPoint.dy),
       Offset(targetPoint.dx + lineLength, targetPoint.dy),
       targetPaint,
     );
-
+    
     // Vertical line
     canvas.drawLine(
       Offset(targetPoint.dx, targetPoint.dy - lineLength),
@@ -279,118 +262,101 @@ class MeasurementOverlayPainter extends CustomPainter {
     // Draw center dot
     canvas.drawCircle(targetPoint, 3, Paint()..color = Colors.white);
 
-    // Display calculated distance if available
-    if (calculatedDistance != null && calculatedDistance! > 0) {
-      final distanceText = "${calculatedDistance!.toStringAsFixed(2)} ${unit ?? 'm'}";
-      final distanceTextPainter = TextPainter(
-        text: TextSpan(
-          text: distanceText,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            shadows: [
-              Shadow(
-                offset: Offset(1, 1),
-                blurRadius: 3,
-                color: Colors.black,
+    // If we have depth information, display it
+    if (depthMap != null && depthMap!.isNotEmpty) {
+      // Calculate normalized coordinates
+      final normalizedX = (targetPoint.dx / size.width).clamp(0.0, 1.0);
+      final normalizedY = (targetPoint.dy / size.height).clamp(0.0, 1.0);
+
+          // Get approximate depth value (this is simplified)
+          final depthIndex =
+              ((normalizedY * 384).round() * 384 + (normalizedX * 384).round())
+                  .clamp(0, depthMap!.length - 1);
+          final depthValue = depthMap![depthIndex];
+
+          final depthText = "D: ${depthValue.toStringAsFixed(2)}m";
+          final depthTextPainter = TextPainter(
+            text: TextSpan(
+              text: depthText,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                background: Paint()..color = Colors.blue.withValues(alpha: 0.8),
               ),
-            ],
+            ),
+            textDirection: TextDirection.ltr,
+          );
+          depthTextPainter.layout();
+          depthTextPainter.paint(
+            canvas,
+            Offset(points[i].dx + 15, points[i].dy - 25),
+          );
+        }
+
+        // Show depth estimation status
+        final statusText = "✓ Depth Estimation Active";
+        final statusTextPainter = TextPainter(
+          text: TextSpan(
+            text: statusText,
+            style: TextStyle(
+              color: Colors.green,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              background: Paint()..color = Colors.black.withValues(alpha: 0.7),
+            ),
           ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      distanceTextPainter.layout();
-
-      // Position text above the target point with background
-      final textOffset = Offset(
-        targetPoint.dx - distanceTextPainter.width / 2,
-        targetPoint.dy - 60,
-      );
-
-      // Draw background rectangle for better readability
-      final backgroundRect = Rect.fromLTWH(
-        textOffset.dx - 8,
-        textOffset.dy - 4,
-        distanceTextPainter.width + 16,
-        distanceTextPainter.height + 8,
-      );
-
-      final backgroundPaint = Paint()
-        ..color = primaryColor.withValues(alpha: 0.9)
-        ..style = PaintingStyle.fill;
-
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(backgroundRect, Radius.circular(8)),
-        backgroundPaint,
-      );
-
-      // Draw white border around background
-      final borderPaint = Paint()
-        ..color = Colors.white
-        ..strokeWidth = 1.5
-        ..style = PaintingStyle.stroke;
-
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(backgroundRect, Radius.circular(8)),
-        borderPaint,
-      );
-
-      distanceTextPainter.paint(canvas, textOffset);
-
-      // Add subtitle text
-      final subtitleText = "Distance from camera";
-      final subtitleTextPainter = TextPainter(
-        text: TextSpan(
-          text: subtitleText,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.8),
-            fontSize: 12,
-            fontWeight: FontWeight.normal,
-            shadows: [
-              Shadow(
-                offset: Offset(1, 1),
-                blurRadius: 2,
-                color: Colors.black,
-              ),
-            ],
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      subtitleTextPainter.layout();
-
-      final subtitleOffset = Offset(
-        targetPoint.dx - subtitleTextPainter.width / 2,
-        textOffset.dy + distanceTextPainter.height + 4,
-      );
-
-      subtitleTextPainter.paint(canvas, subtitleOffset);
-
-      // Show depth estimation status
-      final statusText = "✓ Depth Estimation Active";
-      final statusTextPainter = TextPainter(
-        text: TextSpan(
-          text: statusText,
-          style: TextStyle(
-            color: Colors.green,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            background: Paint()..color = Colors.black.withValues(alpha: 0.7),
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      statusTextPainter.layout();
-      statusTextPainter.paint(
-        canvas,
-        Offset(size.width - statusTextPainter.width - 20, 20),
-      );
+          textDirection: TextDirection.ltr,
+        );
+        statusTextPainter.layout();
+        statusTextPainter.paint(
+          canvas,
+          Offset(size.width - statusTextPainter.width - 20, 20),
+        );
+      }
     }
   }
 
+  void _drawArrowLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    // Calculate arrow direction
+    final direction = (end - start);
+    final length = direction.distance;
+    final unitVector = direction / length;
+
+    // Arrow size
+    const arrowLength = 15.0;
+    const arrowWidth = 8.0;
+
+    // Draw arrows at both ends
+    _drawArrow(canvas, start, unitVector, paint, arrowLength, arrowWidth);
+    _drawArrow(canvas, end, -unitVector, paint, arrowLength, arrowWidth);
+  }
+
+  void _drawArrow(
+    Canvas canvas,
+    Offset point,
+    Offset direction,
+    Paint paint,
+    double length,
+    double width,
+  ) {
+    final perpendicular = Offset(-direction.dy, direction.dx);
+
+    final arrowTip = point + direction * length;
+    final arrowLeft = point + perpendicular * width;
+    final arrowRight = point - perpendicular * width;
+
+    final path = Path()
+      ..moveTo(arrowTip.dx, arrowTip.dy)
+      ..lineTo(arrowLeft.dx, arrowLeft.dy)
+      ..lineTo(arrowRight.dx, arrowRight.dy)
+      ..close();
+
+    canvas.drawPath(path, paint..style = PaintingStyle.fill);
+  }
+
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
 class DepthMapOverlayPainter extends CustomPainter {
@@ -522,5 +488,5 @@ class DepthMapOverlayPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

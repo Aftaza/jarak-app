@@ -7,11 +7,8 @@ list(APPEND FLUTTER_PLUGIN_LIST
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
-<<<<<<< HEAD
-=======
   onnxruntime
   tflite_flutter
->>>>>>> 71abcb3 (push depth pro onnx)
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

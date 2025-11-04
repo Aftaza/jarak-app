@@ -1,9 +1,5 @@
 import 'dart:async';
 
-<<<<<<< HEAD
-=======
-import 'package:flutter/foundation.dart';
->>>>>>> 71abcb3 (push depth pro onnx)
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -51,7 +47,6 @@ class _SplashScreenState extends State<SplashScreen>
     );
 
     // Logo scale animation
-<<<<<<< HEAD
     _logoScaleAnimation = Tween<double>(
       begin: 0.8,
       end: 1.0,
@@ -77,30 +72,6 @@ class _SplashScreenState extends State<SplashScreen>
       parent: _progressAnimationController,
       curve: Curves.easeInOut,
     ));
-=======
-    _logoScaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _logoAnimationController,
-        curve: Curves.elasticOut,
-      ),
-    );
-
-    // Logo opacity animation
-    _logoOpacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _logoAnimationController,
-        curve: const Interval(0.0, 0.6, curve: Curves.easeIn),
-      ),
-    );
-
-    // Progress animation
-    _progressAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _progressAnimationController,
-        curve: Curves.easeInOut,
-      ),
-    );
->>>>>>> 71abcb3 (push depth pro onnx)
 
     // Start logo animation
     _logoAnimationController.forward();
@@ -143,26 +114,10 @@ class _SplashScreenState extends State<SplashScreen>
       _initializationStatus = 'Checking camera permissions...';
       _progress = 0.5;
     });
-<<<<<<< HEAD
     
     // Check for camera permission
     var status = await Permission.camera.status;
     
-=======
-
-    // On desktop platforms, skip camera permission check
-    if (kIsWeb ||
-        Theme.of(context).platform == TargetPlatform.windows ||
-        Theme.of(context).platform == TargetPlatform.linux ||
-        Theme.of(context).platform == TargetPlatform.macOS) {
-      await Future.delayed(const Duration(milliseconds: 400));
-      return;
-    }
-
-    // Check for camera permission (mobile only)
-    var status = await Permission.camera.status;
-
->>>>>>> 71abcb3 (push depth pro onnx)
     if (!status.isGranted) {
       // Navigate to camera permission screen if not granted
       if (mounted) {
@@ -170,11 +125,7 @@ class _SplashScreenState extends State<SplashScreen>
       }
       return;
     }
-<<<<<<< HEAD
     
-=======
-
->>>>>>> 71abcb3 (push depth pro onnx)
     await Future.delayed(const Duration(milliseconds: 400));
   }
 
@@ -261,14 +212,8 @@ class _SplashScreenState extends State<SplashScreen>
                                     borderRadius: BorderRadius.circular(4.w),
                                     boxShadow: [
                                       BoxShadow(
-<<<<<<< HEAD
                                         color:
                                             Colors.black.withValues(alpha: 0.2),
-=======
-                                        color: Colors.black.withValues(
-                                          alpha: 0.2,
-                                        ),
->>>>>>> 71abcb3 (push depth pro onnx)
                                         blurRadius: 20,
                                         offset: const Offset(0, 8),
                                       ),
@@ -278,13 +223,7 @@ class _SplashScreenState extends State<SplashScreen>
                                     child: CustomIconWidget(
                                       iconName: 'straighten',
                                       color: AppTheme
-<<<<<<< HEAD
                                           .lightTheme.colorScheme.primary,
-=======
-                                          .lightTheme
-                                          .colorScheme
-                                          .primary,
->>>>>>> 71abcb3 (push depth pro onnx)
                                       size: 12.w,
                                     ),
                                   ),
@@ -294,7 +233,6 @@ class _SplashScreenState extends State<SplashScreen>
                                 Text(
                                   'Jarak App',
                                   style: AppTheme
-<<<<<<< HEAD
                                       .lightTheme.textTheme.headlineMedium
                                       ?.copyWith(
                                     color: AppTheme
@@ -302,26 +240,12 @@ class _SplashScreenState extends State<SplashScreen>
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: 1.2,
                                   ),
-=======
-                                      .lightTheme
-                                      .textTheme
-                                      .headlineMedium
-                                      ?.copyWith(
-                                        color: AppTheme
-                                            .lightTheme
-                                            .colorScheme
-                                            .onPrimary,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 1.2,
-                                      ),
->>>>>>> 71abcb3 (push depth pro onnx)
                                 ),
                                 SizedBox(height: 1.h),
                                 // Tagline
                                 Text(
                                   'Pengukur Jarak Digital Pintar ',
                                   style: AppTheme
-<<<<<<< HEAD
                                       .lightTheme.textTheme.bodyMedium
                                       ?.copyWith(
                                     color: AppTheme
@@ -329,19 +253,6 @@ class _SplashScreenState extends State<SplashScreen>
                                         .withValues(alpha: 0.8),
                                     letterSpacing: 0.5,
                                   ),
-=======
-                                      .lightTheme
-                                      .textTheme
-                                      .bodyMedium
-                                      ?.copyWith(
-                                        color: AppTheme
-                                            .lightTheme
-                                            .colorScheme
-                                            .onPrimary
-                                            .withValues(alpha: 0.8),
-                                        letterSpacing: 0.5,
-                                      ),
->>>>>>> 71abcb3 (push depth pro onnx)
                                   textAlign: TextAlign.center,
                                 ),
                               ],
@@ -378,24 +289,12 @@ class _SplashScreenState extends State<SplashScreen>
                                   height: 0.8.h,
                                   decoration: BoxDecoration(
                                     color: AppTheme
-<<<<<<< HEAD
                                         .lightTheme.colorScheme.onPrimary,
-=======
-                                        .lightTheme
-                                        .colorScheme
-                                        .onPrimary,
->>>>>>> 71abcb3 (push depth pro onnx)
                                     borderRadius: BorderRadius.circular(0.4.h),
                                     boxShadow: [
                                       BoxShadow(
                                         color: AppTheme
-<<<<<<< HEAD
                                             .lightTheme.colorScheme.onPrimary
-=======
-                                            .lightTheme
-                                            .colorScheme
-                                            .onPrimary
->>>>>>> 71abcb3 (push depth pro onnx)
                                             .withValues(alpha: 0.3),
                                         blurRadius: 8,
                                         offset: const Offset(0, 2),
@@ -413,21 +312,12 @@ class _SplashScreenState extends State<SplashScreen>
                       // Status text
                       Text(
                         _initializationStatus,
-<<<<<<< HEAD
                         style:
                             AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
                           color: AppTheme.lightTheme.colorScheme.onPrimary
                               .withValues(alpha: 0.9),
                           letterSpacing: 0.3,
                         ),
-=======
-                        style: AppTheme.lightTheme.textTheme.bodyMedium
-                            ?.copyWith(
-                              color: AppTheme.lightTheme.colorScheme.onPrimary
-                                  .withValues(alpha: 0.9),
-                              letterSpacing: 0.3,
-                            ),
->>>>>>> 71abcb3 (push depth pro onnx)
                         textAlign: TextAlign.center,
                       ),
                       SizedBox(height: 1.h),
@@ -435,21 +325,12 @@ class _SplashScreenState extends State<SplashScreen>
                       // Progress percentage
                       Text(
                         '${(_progress * 100).toInt()}%',
-<<<<<<< HEAD
                         style:
                             AppTheme.lightTheme.textTheme.labelLarge?.copyWith(
                           color: AppTheme.lightTheme.colorScheme.onPrimary
                               .withValues(alpha: 0.7),
                           fontWeight: FontWeight.w600,
                         ),
-=======
-                        style: AppTheme.lightTheme.textTheme.labelLarge
-                            ?.copyWith(
-                              color: AppTheme.lightTheme.colorScheme.onPrimary
-                                  .withValues(alpha: 0.7),
-                              fontWeight: FontWeight.w600,
-                            ),
->>>>>>> 71abcb3 (push depth pro onnx)
                       ),
                     ],
                   ),
@@ -488,41 +369,23 @@ class _SplashScreenState extends State<SplashScreen>
                       SizedBox(height: 1.h),
                       Text(
                         'Aftaza • Computer Vision • Arif',
-<<<<<<< HEAD
                         style:
                             AppTheme.lightTheme.textTheme.labelSmall?.copyWith(
                           color: AppTheme.lightTheme.colorScheme.onPrimary
                               .withValues(alpha: 0.6),
                           letterSpacing: 0.8,
                         ),
-=======
-                        style: AppTheme.lightTheme.textTheme.labelSmall
-                            ?.copyWith(
-                              color: AppTheme.lightTheme.colorScheme.onPrimary
-                                  .withValues(alpha: 0.6),
-                              letterSpacing: 0.8,
-                            ),
->>>>>>> 71abcb3 (push depth pro onnx)
                         textAlign: TextAlign.center,
                       ),
                       SizedBox(height: 0.5.h),
                       Text(
                         'Version 1.0.0',
-<<<<<<< HEAD
                         style:
                             AppTheme.lightTheme.textTheme.labelSmall?.copyWith(
                           color: AppTheme.lightTheme.colorScheme.onPrimary
                               .withValues(alpha: 0.5),
                           fontSize: 10.sp,
                         ),
-=======
-                        style: AppTheme.lightTheme.textTheme.labelSmall
-                            ?.copyWith(
-                              color: AppTheme.lightTheme.colorScheme.onPrimary
-                                  .withValues(alpha: 0.5),
-                              fontSize: 10.sp,
-                            ),
->>>>>>> 71abcb3 (push depth pro onnx)
                       ),
                     ],
                   ),

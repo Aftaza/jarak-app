@@ -1,187 +1,28 @@
-<<<<<<< HEAD
-import 'dart:io';
-import 'dart:math';
-import 'dart:typed_data';
-// import 'dart:ui' as ui;
-
-import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
-import 'package:tflite_flutter/tflite_flutter.dart';
-
-class DepthEstimationService {
-  Interpreter? _interpreter;
-  static const String _modelPath = 'assets/models/midas_v2.tflite';
-  static const int _inputSize = 256; // MiDaS model input size
-
-  bool _isInitialized = false;
-
-  /// Initialize the TensorFlow Lite interpreter with the MiDaS model
-  Future<void> initialize() async {
-    if (_isInitialized) return;
-
-    try {
-      // Load model from assets
-      final modelData = await rootBundle.load(_modelPath);
-      final buffer = modelData.buffer.asUint8List();
-
-      // Create interpreter options for better performance
-      final options = InterpreterOptions()
-        ..threads = 4;
-
-      // Create interpreter
-      _interpreter = Interpreter.fromBuffer(buffer, options: options);
-      _isInitialized = true;
-    } catch (e) {
-      print('Error initializing depth estimation service: $e');
-      rethrow;
-    }
-  }
-
-  /// Dispose of the interpreter to free resources
-  void dispose() {
-    _interpreter?.close();
-    _interpreter = null;
-    _isInitialized = false;
-  }
-
-  /// Estimate depth from an image file
-  Future<Float32List> estimateDepthFromFile(String imagePath) async {
-    if (!_isInitialized) {
-      throw Exception('DepthEstimationService not initialized');
-    }
-
-    try {
-      // Load image file
-      final imageFile = File(imagePath);
-      final imageBytes = await imageFile.readAsBytes();
-      
-      // Process image and estimate depth
-      return await estimateDepthFromBytes(imageBytes);
-    } catch (e) {
-      print('Error estimating depth from file: $e');
-      rethrow;
-    }
-  }
-
-  /// Estimate depth from image bytes
-  Future<Float32List> estimateDepthFromBytes(Uint8List imageBytes) async {
-    if (!_isInitialized || _interpreter == null) {
-      throw Exception('DepthEstimationService not initialized');
-    }
-
-    try {
-      // Decode image
-      final image = img.decodeImage(imageBytes);
-      if (image == null) {
-        throw Exception('Failed to decode image');
-      }
-
-      // Resize image to model input size
-      final resizedImage = img.copyResize(
-        image,
-        width: _inputSize,
-        height: _inputSize,
-      );
-
-      // Convert to tensor (normalized to [0, 1])
-      final inputTensor = _imageToTensor(resizedImage);
-
-      // Prepare output tensor
-      final outputTensor = Float32List(_inputSize * _inputSize);
-
-      // Run inference
-      _interpreter!.run(inputTensor, outputTensor);
-
-      return outputTensor;
-    } catch (e) {
-      print('Error estimating depth from bytes: $e');
-      rethrow;
-    }
-  }
-
-  /// Convert image to tensor for model input
-  Float32List _imageToTensor(img.Image image) {
-    final pixels = image.getBytes();
-    final tensor = Float32List(_inputSize * _inputSize * 3);
-
-    // Convert RGB to normalized tensor ([0, 1] range)
-    for (int i = 0; i < pixels.length; i += 4) {
-      final r = pixels[i] / 255.0;
-      final g = pixels[i + 1] / 255.0;
-      final b = pixels[i + 2] / 255.0;
-
-      final index = (i ~/ 4) * 3;
-      tensor[index] = r;
-      tensor[index + 1] = g;
-      tensor[index + 2] = b;
-    }
-
-    return tensor;
-  }
-
-  /// Get depth value at specific coordinates (normalized to [0, 1])
-  double getDepthAt(Float32List depthMap, double x, double y) {
-    if (depthMap.isEmpty) return 0.0;
-
-    // Convert normalized coordinates to pixel coordinates
-    final pixelX = (x * (_inputSize - 1)).round();
-    final pixelY = (y * (_inputSize - 1)).round();
-
-    // Clamp to valid range
-    final clampedX = pixelX.clamp(0, _inputSize - 1);
-    final clampedY = pixelY.clamp(0, _inputSize - 1);
-
-    // Calculate index in depth map
-    final index = clampedY * _inputSize + clampedX;
-
-    // Return depth value (ensure it's within valid range)
-    return index < depthMap.length ? depthMap[index] : 0.0;
-  }
-
-  /// Calculate distance between two points using depth information
-  double calculateDistance(
-    Float32List depthMap,
-    double x1,
-    double y1,
-    double x2,
-    double y2,
-  ) {
-    if (depthMap.isEmpty) return 0.0;
-
-    // Get depth values at both points
-    final depth1 = getDepthAt(depthMap, x1, y1);
-    final depth2 = getDepthAt(depthMap, x2, y2);
-
-    // Calculate Euclidean distance in 3D space
-    // Using simplified model where depth represents distance from camera
-    final dx = x2 - x1;
-    final dy = y2 - y1;
-    final dz = depth2 - depth1;
-
-    // Calculate 3D distance
-    final distance = sqrt(dx * dx + dy * dy + dz * dz);
-
-    return distance;
-  }
-
-  /// Check if the service is initialized
-  bool get isInitialized => _isInitialized;
-}
-=======
 // depth_estimation_service.dart
 import 'dart:io';
 import 'dart:math';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
 import 'package:onnxruntime/onnxruntime.dart' as onnx;
 
+/// Service untuk depth estimation menggunakan DepthPro model (Bochkovskii et al., Apple, 2024).
+///
+/// DepthPro menghasilkan metric-scale depth map:
+/// - Output: nilai depth dalam satuan METER (bukan relative depth)
+/// - Setiap piksel bernilai estimasi jarak dari kamera ke objek (dalam meter)
+/// - Contoh: piksel=0.8 berarti objek berjarak ~0.8m dari kamera
+/// - Model dilatih dengan dataset absolute depth (NYUv2, KITTI, ETH3D)
+/// - Akurasi: RMSE ~0.3-0.5m pada jarak <5m (indoor/outdoor)
 class DepthEstimationService {
   // ===== Konfigurasi model =====
-  // Pakai ONNX DepthPro (FP32/FP16). Simpan di assets dan pastikan dimasukkan ke pubspec.yaml.
+  // Model DepthPro quantized (ONNX format)
   static const String _onnxAssetPath = 'assets/models/model_quantized.onnx';
-  static const int _defaultSize = 384; // Ukuran aman untuk DepthPro export umum
+  // Gunakan input yang lebih kecil secara default untuk mengurangi penggunaan memori dan waktu proses di perangkat kelas menengah.
+  static const int _defaultSize =
+      256; // 256x256 cukup baik untuk mobile, kurangi risiko OOM
 
   // ===== ORT =====
   onnx.OrtSession? _session;
@@ -195,6 +36,8 @@ class DepthEstimationService {
   bool get isInitialized => _initialized;
   int get outputHeight => _outH;
   int get outputWidth => _outW;
+  bool get hasDepth => _lastDepthMap != null && _lastDepthMap!.isNotEmpty;
+  Float32List? get lastDepthMap => _lastDepthMap;
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -203,21 +46,35 @@ class DepthEstimationService {
     onnx.OrtEnv.instance.init();
 
     // 2) Session options
+    // Keep thread count low to reduce memory pressure on mobile devices
     _options = onnx.OrtSessionOptions()
-      ..setIntraOpNumThreads(max(1, (Platform.numberOfProcessors ~/ 2)))
+      ..setIntraOpNumThreads(1)
       ..setInterOpNumThreads(1)
       ..setSessionGraphOptimizationLevel(
         onnx.GraphOptimizationLevel.ortEnableAll,
       );
 
-    // 3) Load model bytes (dari assets)
-    final data = await rootBundle.load(_onnxAssetPath);
-    final bytes = data.buffer.asUint8List();
+    try {
+      // 3) Load model bytes (dari assets)
+      final data = await rootBundle.load(_onnxAssetPath);
+      final bytes = data.buffer.asUint8List();
 
-    // 4) Buat session
-    _session = onnx.OrtSession.fromBuffer(bytes, _options!);
-
-    _initialized = true;
+      // 4) Buat session
+      _session = onnx.OrtSession.fromBuffer(bytes, _options!);
+      _initialized = true;
+      print('✅ ONNX model loaded: $_onnxAssetPath (${bytes.length} bytes)');
+    } on Exception catch (e) {
+      // Tambahkan pesan yang lebih jelas kalau kehabisan memori
+      final msg = e.toString();
+      if (msg.contains('MEMORY') ||
+          msg.contains('alloc') ||
+          msg.contains('OOM')) {
+        throw Exception(
+          'Model gagal dimuat: kemungkinan kehabisan memori. Ukuran model terlalu besar untuk perangkat ini.',
+        );
+      }
+      rethrow;
+    }
   }
 
   void dispose() {
@@ -242,7 +99,7 @@ class DepthEstimationService {
     return estimateDepthFromBytes(bytes, size: size);
   }
 
-  /// Inference dari bytes gambar. Output: NHWC (H×W×1), nilai float depth (belum dinormalisasi 0..1).
+  /// Inference dari bytes gambar. Output: NHWC (H×W×1), nilai float depth (DepthPro = meter).
   Future<Float32List> estimateDepthFromBytes(
     Uint8List imageBytes, {
     int size = _defaultSize,
@@ -251,18 +108,21 @@ class DepthEstimationService {
       throw StateError('DepthEstimationService not initialized');
     }
 
-    // Decode & resize (bilinear)
-    final decoded = img.decodeImage(imageBytes);
-    if (decoded == null) throw Exception('Failed to decode image');
-    final resized = img.copyResize(decoded, width: size, height: size);
-
-    // ----- Siapkan input: Float32 NCHW, rescale 0..1 -----
-    final nchw = _rgbaToNCHWFloat(resized, toMinus1to1: false);
+    // Preprocessing (decode, resize, NCHW) di isolate agar tidak block UI thread
+    final _PreprocessResult prep = await Isolate.run(() {
+      final decoded = img.decodeImage(imageBytes);
+      if (decoded == null) {
+        throw Exception('Failed to decode image');
+      }
+      final resized = img.copyResize(decoded, width: size, height: size);
+      final data = _rgbaToNCHWFloatIsolate(resized, toMinus1to1: false);
+      return _PreprocessResult(data, resized.height, resized.width);
+    });
 
     final inputName = _session!.inputNames.first;
     final inputTensor = onnx.OrtValueTensor.createTensorWithDataList(
-      [nchw],
-      [1, 3, resized.height, resized.width], // NCHW
+      [prep.nchw],
+      [1, 3, prep.h, prep.w], // NCHW
     );
 
     List<onnx.OrtValue?>? outputs;
@@ -314,12 +174,12 @@ class DepthEstimationService {
     // Untuk DepthPro, output biasanya berukuran sama dengan input (H x W)
     // Karena kita tidak bisa mengakses shape dari tensor secara langsung,
     // kita asumsikan output memiliki dimensi yang sama dengan input
-    final expectedSize = resized.height * resized.width;
+    final expectedSize = prep.h * prep.w;
 
     // Verifikasi ukuran data sesuai ekspektasi
     if (flat.length >= expectedSize) {
-      _outH = resized.height;
-      _outW = resized.width;
+      _outH = prep.h;
+      _outW = prep.w;
     } else {
       // Fallback: coba cari dimensi yang masuk akal
       final sqrtVal = sqrt(flat.length.toDouble()).round();
@@ -328,8 +188,8 @@ class DepthEstimationService {
         _outW = sqrtVal;
       } else {
         // Last resort: gunakan dimensi input
-        _outH = resized.height;
-        _outW = resized.width;
+        _outH = prep.h;
+        _outW = prep.w;
       }
     }
 
@@ -341,6 +201,18 @@ class DepthEstimationService {
       try {
         outputs[i]?.release();
       } catch (_) {}
+    }
+
+    // Debug: print statistik depth map untuk verifikasi output DepthPro
+    if (flat.isNotEmpty) {
+      final minDepth = flat.reduce((a, b) => a < b ? a : b);
+      final maxDepth = flat.reduce((a, b) => a > b ? a : b);
+      final avgDepth = flat.reduce((a, b) => a + b) / flat.length;
+      print('🔍 DepthPro output stats (METRIC DEPTH in meters):');
+      print('   - Min: ${minDepth.toStringAsFixed(3)}m');
+      print('   - Max: ${maxDepth.toStringAsFixed(3)}m');
+      print('   - Avg: ${avgDepth.toStringAsFixed(3)}m');
+      print('   - Output size: ${_outW}x${_outH} (${flat.length} pixels)');
     }
 
     _lastDepthMap = flat;
@@ -358,44 +230,70 @@ class DepthEstimationService {
 
   /// Menghitung jarak dari kamera ke titik yang dipilih berdasarkan depth estimation.
   /// Koordinat dalam normalized screen coordinates (0.0 - 1.0).
-  /// Returns jarak dalam meter.
+  /// Returns jarak dalam meter (DepthPro metric depth).
   double calculateDistanceToPoint(
     double normalizedX,
     double normalizedY, {
-    double focalLengthPixels = 1000.0, // Default focal length dalam pixels
-    double sensorWidthMm =
-        6.17, // Default sensor width dalam mm (untuk smartphone umum)
+    int sampleRadius = 3,
+    double calibrationScale = 1.0,
   }) {
-    if (_lastDepthMap == null) {
+    if (!hasDepth) {
       return 0.0;
     }
 
-    // Konversi normalized coordinates ke pixel coordinates dalam depth map
-    final pixelX = (normalizedX * _outW).clamp(0, _outW - 1).toInt();
-    final pixelY = (normalizedY * _outH).clamp(0, _outH - 1).toInt();
+    final int width = _outW;
+    final int height = _outH;
+    final int centerX = (normalizedX.clamp(0.0, 1.0) * (width - 1)).round();
+    final int centerY = (normalizedY.clamp(0.0, 1.0) * (height - 1)).round();
 
-    // Ambil nilai depth pada titik tersebut
-    final depthValue = getDepthAt(pixelX, pixelY);
+    final double medianDepth = _sampleMedianDepth(
+      centerX,
+      centerY,
+      radius: sampleRadius,
+    );
 
-    if (depthValue <= 0) {
+    if (medianDepth <= 0) {
       return 0.0;
     }
 
-    // Untuk DepthPro, nilai output biasanya sudah dalam meter
-    // Tapi perlu dicek apakah perlu normalisasi atau konversi
-    // Karena model depth estimation bisa mengeluarkan nilai dalam range berbeda
+    // DepthPro output sudah dalam meter, hanya perlu calibration scale untuk fine-tuning
+    final distance = (medianDepth * calibrationScale).clamp(0.0, 200.0);
 
-    // Asumsi: DepthPro mengeluarkan inverse depth atau depth yang perlu dikonversi
-    // Jika model mengeluarkan nilai yang sangat kecil, mungkin perlu di-scale
-    double distanceInMeters = depthValue;
+    print(
+      '📍 Point ($normalizedX, $normalizedY) -> Depth: ${medianDepth.toStringAsFixed(3)}m, Calibrated: ${distance.toStringAsFixed(3)}m',
+    );
 
-    // Jika nilai depth terlalu kecil (< 0.1), kemungkinan perlu di-scale
-    if (distanceInMeters < 0.1) {
-      distanceInMeters = 1.0 / (depthValue + 1e-6); // Inverse depth
+    return distance;
+  }
+
+  double _sampleMedianDepth(int cx, int cy, {int radius = 3}) {
+    final Float32List? map = _lastDepthMap;
+    if (map == null || map.isEmpty) {
+      return 0.0;
     }
 
-    // Clamp hasil untuk range yang masuk akal (0.1m - 100m)
-    return distanceInMeters.clamp(0.1, 100.0);
+    final int width = _outW;
+    final int height = _outH;
+    final int r = radius < 1 ? 1 : radius;
+
+    final List<double> samples = [];
+    for (int dy = -r; dy <= r; dy++) {
+      final int y = (cy + dy).clamp(0, height - 1);
+      for (int dx = -r; dx <= r; dx++) {
+        final int x = (cx + dx).clamp(0, width - 1);
+        final double depth = map[y * width + x];
+        if (depth > 0) {
+          samples.add(depth);
+        }
+      }
+    }
+
+    if (samples.isEmpty) {
+      return 0.0;
+    }
+
+    samples.sort();
+    return samples[samples.length ~/ 2];
   }
 
   /// Menghitung jarak dengan menggunakan informasi focal length yang lebih akurat.
@@ -448,42 +346,43 @@ class DepthEstimationService {
   }
 
   // ===== Helpers =====
-
-  /// Konversi RGBA (dari package:image) ke Float32List NCHW.
-  /// RGBA di-rescale ke [0,1] (opsional ke [-1,1]).
-  Float32List _rgbaToNCHWFloat(img.Image image, {bool toMinus1to1 = false}) {
-    final w = image.width, h = image.height;
-    final out = Float32List(3 * h * w);
-    final plane = h * w;
-
-    // Gunakan pixel iterator yang lebih robust untuk berbagai format
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        final pixel = image.getPixel(x, y);
-
-        // Extract RGB values dari pixel (format bisa berbeda-beda)
-        double r = pixel.r / pixel.rNormalized; // Normalisasi ke 0-1
-        double g = pixel.g / pixel.gNormalized;
-        double b = pixel.b / pixel.bNormalized;
-
-        // Clamp values to 0-1 range untuk safety
-        r = r.clamp(0.0, 1.0);
-        g = g.clamp(0.0, 1.0);
-        b = b.clamp(0.0, 1.0);
-
-        if (toMinus1to1) {
-          r = (r - 0.5) / 0.5;
-          g = (g - 0.5) / 0.5;
-          b = (b - 0.5) / 0.5;
-        }
-
-        final idx = y * w + x;
-        out[idx] = r;
-        out[plane + idx] = g;
-        out[2 * plane + idx] = b;
-      }
-    }
-    return out;
-  }
 }
->>>>>>> 71abcb3 (push depth pro onnx)
+
+class _PreprocessResult {
+  final Float32List nchw;
+  final int h;
+  final int w;
+  const _PreprocessResult(this.nchw, this.h, this.w);
+}
+
+/// Top-level helper agar bisa dipanggil dari Isolate.run
+Float32List _rgbaToNCHWFloatIsolate(
+  img.Image image, {
+  bool toMinus1to1 = false,
+}) {
+  final w = image.width, h = image.height;
+  final out = Float32List(3 * h * w);
+  final plane = h * w;
+
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      final pixel = image.getPixel(x, y);
+      double r = pixel.r / pixel.rNormalized;
+      double g = pixel.g / pixel.gNormalized;
+      double b = pixel.b / pixel.bNormalized;
+      r = r.clamp(0.0, 1.0);
+      g = g.clamp(0.0, 1.0);
+      b = b.clamp(0.0, 1.0);
+      if (toMinus1to1) {
+        r = (r - 0.5) / 0.5;
+        g = (g - 0.5) / 0.5;
+        b = (b - 0.5) / 0.5;
+      }
+      final idx = y * w + x;
+      out[idx] = r;
+      out[plane + idx] = g;
+      out[2 * plane + idx] = b;
+    }
+  }
+  return out;
+}

@@ -11,6 +11,7 @@ class MeasurementControlsWidget extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onSave;
   final VoidCallback onShare;
+  final VoidCallback onLoadImage;
 
   const MeasurementControlsWidget({
     Key? key,
@@ -21,6 +22,7 @@ class MeasurementControlsWidget extends StatelessWidget {
     required this.onReset,
     required this.onSave,
     required this.onShare,
+    required this.onLoadImage,
   }) : super(key: key);
 
   @override
@@ -34,7 +36,7 @@ class MeasurementControlsWidget extends StatelessWidget {
         child: Column(
           children: [
             // Main capture button
-            if (!isCapturing) _buildCaptureButton() else _buildActionButtons(),
+            if (!isCapturing) _buildIdleControls() else _buildActionButtons(),
 
             SizedBox(height: 2.h),
 
@@ -47,13 +49,30 @@ class MeasurementControlsWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildCaptureButton() {
+  Widget _buildIdleControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildMiniButton(
+          icon: 'file_upload',
+          label: 'Upload',
+          onTap: isProcessing ? null : onLoadImage,
+        ),
+        SizedBox(width: 6.w),
+        _buildCaptureButton(isProcessing: isProcessing),
+      ],
+    );
+  }
+
+  Widget _buildCaptureButton({required bool isProcessing}) {
     return Container(
       width: 20.w,
       height: 20.w,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: AppTheme.lightTheme.primaryColor,
+        color: isProcessing
+            ? Colors.grey.withValues(alpha: 0.6)
+            : AppTheme.lightTheme.primaryColor,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.3),
@@ -66,13 +85,22 @@ class MeasurementControlsWidget extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(10.w),
-          onTap: onCapture,
+          onTap: isProcessing ? null : onCapture,
           child: Center(
-            child: CustomIconWidget(
-              iconName: 'camera_alt',
-              color: Colors.white,
-              size: 8.w,
-            ),
+            child: isProcessing
+                ? SizedBox(
+                    width: 8.w,
+                    height: 8.w,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 3,
+                    ),
+                  )
+                : CustomIconWidget(
+                    iconName: 'camera_alt',
+                    color: Colors.white,
+                    size: 8.w,
+                  ),
           ),
         ),
       ),
@@ -99,9 +127,9 @@ class MeasurementControlsWidget extends StatelessWidget {
             shape: BoxShape.circle,
             color: isProcessing
                 ? AppTheme.warningLight
-                : selectedPointsCount == 2
-                    ? AppTheme.accentLight
-                    : AppTheme.lightTheme.primaryColor,
+                : selectedPointsCount > 0
+                ? AppTheme.accentLight
+                : AppTheme.lightTheme.primaryColor,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
@@ -123,9 +151,7 @@ class MeasurementControlsWidget extends StatelessWidget {
                 : CustomIconWidget(
                     iconName: selectedPointsCount == 0
                         ? 'radio_button_unchecked'
-                        : selectedPointsCount == 1
-                            ? 'radio_button_checked'
-                            : 'check_circle',
+                        : 'radio_button_checked',
                     color: Colors.white,
                     size: 6.w,
                   ),
@@ -134,9 +160,9 @@ class MeasurementControlsWidget extends StatelessWidget {
 
         // Done/Continue button
         _buildActionButton(
-          icon: selectedPointsCount == 2 ? 'check' : 'add',
-          label: selectedPointsCount == 2 ? 'Done' : 'Continue',
-          onTap: selectedPointsCount == 2 ? () {} : () {},
+          icon: selectedPointsCount > 0 ? 'check' : 'add',
+          label: selectedPointsCount > 0 ? 'Finish' : 'Continue',
+          onTap: (!isProcessing && selectedPointsCount > 0) ? onReset : () {},
           color: AppTheme.accentLight,
         ),
       ],
@@ -202,16 +228,8 @@ class MeasurementControlsWidget extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildSecondaryButton(
-            icon: 'save',
-            label: 'Save',
-            onTap: onSave,
-          ),
-          _buildSecondaryButton(
-            icon: 'share',
-            label: 'Share',
-            onTap: onShare,
-          ),
+          _buildSecondaryButton(icon: 'save', label: 'Save', onTap: onSave),
+          _buildSecondaryButton(icon: 'share', label: 'Share', onTap: onShare),
           _buildSecondaryButton(
             icon: 'history',
             label: 'History',
@@ -219,6 +237,56 @@ class MeasurementControlsWidget extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildMiniButton({
+    required String icon,
+    required String label,
+    VoidCallback? onTap,
+  }) {
+    return Column(
+      children: [
+        Container(
+          width: 12.w,
+          height: 12.w,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: onTap == null
+                ? Colors.grey.withValues(alpha: 0.5)
+                : Colors.black.withValues(alpha: 0.5),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 4,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(6.w),
+              onTap: onTap,
+              child: Center(
+                child: CustomIconWidget(
+                  iconName: icon,
+                  color: Colors.white,
+                  size: 5.w,
+                ),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: 0.5.h),
+        Text(
+          label,
+          style: AppTheme.lightTheme.textTheme.labelSmall?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 
@@ -234,11 +302,7 @@ class MeasurementControlsWidget extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: 2.w, vertical: 1.h),
         child: Column(
           children: [
-            CustomIconWidget(
-              iconName: icon,
-              color: Colors.white,
-              size: 5.w,
-            ),
+            CustomIconWidget(iconName: icon, color: Colors.white, size: 5.w),
             SizedBox(height: 0.5.h),
             Text(
               label,

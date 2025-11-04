@@ -1,28 +1,19 @@
-<<<<<<< HEAD
-import 'dart:math' as math;
-=======
 import 'dart:io';
 import 'dart:typed_data';
->>>>>>> 71abcb3 (push depth pro onnx)
+import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-<<<<<<< HEAD
-import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sizer/sizer.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
-=======
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
->>>>>>> 71abcb3 (push depth pro onnx)
 
 import '../../core/app_export.dart';
 import '../../services/depth_estimation_service.dart';
+import '../../services/depth_measurement_service.dart';
 import '../../theme/app_theme.dart';
 import './widgets/camera_preview_widget.dart';
 import './widgets/camera_settings_widget.dart';
@@ -30,6 +21,7 @@ import './widgets/measurement_controls_widget.dart';
 import './widgets/measurement_history_widget.dart';
 import './widgets/measurement_results_widget.dart';
 import './widgets/top_bar_widget.dart';
+import './models/measurement_point.dart';
 
 class MainMeasurementScreen extends StatefulWidget {
   const MainMeasurementScreen({Key? key}) : super(key: key);
@@ -47,32 +39,30 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   bool _isFlashOn = false;
   bool _isFrontCamera = false;
   double _zoomLevel = 1.0;
-<<<<<<< HEAD
-=======
   bool _cameraSupported = true;
->>>>>>> 71abcb3 (push depth pro onnx)
+  bool _isPreviewPaused = false;
 
   // Depth estimation service
   final DepthEstimationService _depthService = DepthEstimationService();
+  DepthMeasurementService? _depthMeasurementService;
   Float32List? _currentDepthMap;
-<<<<<<< HEAD
-
-  // Measurement related variables
-  List<Offset> _selectedPoints = [];
-=======
   Uint8List? _staticImageBytes;
+  Size? _capturedImageSize;
 
   // Measurement related variables
-  Offset? _selectedPoint; // Ubah dari List ke single point
->>>>>>> 71abcb3 (push depth pro onnx)
+  MeasurementPoint? _selectedPoint;
   bool _isCapturing = false;
   bool _isProcessing = false;
   double? _calculatedDistance;
   bool _showResults = false;
+  bool _showFrozenFrame = false;
 
   // Settings
   bool _isImperialUnit = true;
   bool _isHistoryExpanded = false;
+  double _calibrationScale = 1.0;
+  double? _lastCalibrationAccuracy;
+  String? _lastCalibrationObject;
 
   // Mock measurement history data
   final List<Map<String, dynamic>> _measurementHistory = [
@@ -82,6 +72,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       "unit": "ft",
       "timestamp": DateTime.now().subtract(Duration(hours: 2)),
       "accuracy": "±5%",
+      "imageBytes": null, // Gambar untuk entry lama tidak tersedia
+      "selectedPoint": null,
     },
     {
       "id": 2,
@@ -89,6 +81,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       "unit": "m",
       "timestamp": DateTime.now().subtract(Duration(days: 1)),
       "accuracy": "±3%",
+      "imageBytes": null, // Gambar untuk entry lama tidak tersedia
+      "selectedPoint": null,
     },
     {
       "id": 3,
@@ -96,15 +90,14 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       "unit": "ft",
       "timestamp": DateTime.now().subtract(Duration(days: 2)),
       "accuracy": "±4%",
+      "imageBytes": null, // Gambar untuk entry lama tidak tersedia
+      "selectedPoint": null,
     },
   ];
 
   @override
   void initState() {
     super.initState();
-<<<<<<< HEAD
-    _initializeCamera();
-=======
     // Disable camera on desktop platforms where camera plugin is unsupported
     final isDesktop =
         !kIsWeb &&
@@ -118,8 +111,7 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       // Mark as initialized to avoid loading overlay
       _isCameraInitialized = true;
     }
->>>>>>> 71abcb3 (push depth pro onnx)
-    _initializeDepthService();
+    // Lazy-initialize depth service on first capture to reduce startup memory pressure
     _loadSettings();
   }
 
@@ -149,24 +141,19 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       final camera = kIsWeb
           ? _cameras.firstWhere(
               (c) => c.lensDirection == CameraLensDirection.front,
-<<<<<<< HEAD
-              orElse: () => _cameras.first)
-          : _cameras.firstWhere(
-              (c) => c.lensDirection == CameraLensDirection.back,
-              orElse: () => _cameras.first);
-=======
               orElse: () => _cameras.first,
             )
           : _cameras.firstWhere(
               (c) => c.lensDirection == CameraLensDirection.back,
               orElse: () => _cameras.first,
             );
->>>>>>> 71abcb3 (push depth pro onnx)
 
       // Initialize camera controller
+      // Use a moderate resolution to reduce memory and processing time.
+      // High resolutions can cause OOM when combined with ML processing on low-end devices.
       _cameraController = CameraController(
         camera,
-        kIsWeb ? ResolutionPreset.medium : ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
       );
 
@@ -191,54 +178,21 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     return status.isGranted;
   }
 
-<<<<<<< HEAD
-  Future<void> _captureAndProcessImage() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
-      return;
-    }
-
-    try {
-      // Capture image from camera
-      final image = await _cameraController!.takePicture();
-      
-      // Process image with depth estimation if service is available
-      if (_depthService.isInitialized) {
-        final depthMap = await _depthService.estimateDepthFromFile(image.path);
-        setState(() {
-          _currentDepthMap = depthMap;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error capturing and processing image: $e');
-    }
-  }
-=======
   // Camera capture disabled on desktop; static image flow is used instead.
->>>>>>> 71abcb3 (push depth pro onnx)
 
-  Future<void> _initializeDepthService() async {
-    try {
-      await _depthService.initialize();
-      debugPrint('Depth estimation service initialized successfully');
-    } catch (e) {
-      debugPrint('Failed to initialize depth estimation service: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to initialize depth estimation service'),
-            backgroundColor: AppTheme.errorLight,
-          ),
-        );
-      }
-    }
-  }
+  // Depth service now initializes lazily on first capture to avoid high startup memory usage.
 
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       setState(() {
         _isImperialUnit = prefs.getBool('imperial_unit') ?? true;
+        _calibrationScale = prefs.getDouble('calibration_factor') ?? 1.0;
+        _lastCalibrationAccuracy = prefs.getDouble('calibration_accuracy');
+        _lastCalibrationObject = prefs.getString('calibration_object');
       });
+
+      _updateMeasurementService();
     } catch (e) {
       debugPrint('Settings loading error: $e');
     }
@@ -248,9 +202,31 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('imperial_unit', _isImperialUnit);
+      await prefs.setDouble('calibration_factor', _calibrationScale);
+      if (_lastCalibrationAccuracy != null) {
+        await prefs.setDouble(
+          'calibration_accuracy',
+          _lastCalibrationAccuracy!,
+        );
+      }
+      if (_lastCalibrationObject != null) {
+        await prefs.setString('calibration_object', _lastCalibrationObject!);
+      }
     } catch (e) {
       debugPrint('Settings saving error: $e');
     }
+  }
+
+  void _updateMeasurementService() {
+    if (_currentDepthMap == null || _currentDepthMap!.isEmpty) {
+      _depthMeasurementService = null;
+      return;
+    }
+
+    _depthMeasurementService = DepthMeasurementService(
+      depthService: _depthService,
+      calibrationScale: _calibrationScale,
+    );
   }
 
   Future<void> _applySettings() async {
@@ -270,193 +246,270 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     }
   }
 
-  void _onPointSelected(Offset point) {
-<<<<<<< HEAD
-    if (_selectedPoints.length >= 2) return;
-
-    setState(() {
-      _selectedPoints.add(point);
-=======
+  void _onPointSelected(MeasurementPoint point) {
     setState(() {
       _selectedPoint = point;
       _showResults = false; // Reset results when new point is selected
->>>>>>> 71abcb3 (push depth pro onnx)
     });
 
     // Provide haptic feedback
     HapticFeedback.lightImpact();
 
-<<<<<<< HEAD
-    // If we have two points, calculate distance
-    if (_selectedPoints.length == 2) {
-      _calculateDistance();
-    }
-  }
-
-  void _calculateDistance() {
-    if (_selectedPoints.length != 2) return;
-=======
     // Calculate distance immediately when point is selected
     _calculateDistance();
   }
 
   void _calculateDistance() {
     if (_selectedPoint == null) return;
->>>>>>> 71abcb3 (push depth pro onnx)
+
+    // Cek apakah depth map sudah tersedia
+    if (_currentDepthMap == null || _currentDepthMap!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Depth map not ready. Please wait for processing to complete.',
+          ),
+          backgroundColor: AppTheme.errorLight,
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
     });
 
-<<<<<<< HEAD
-    // Use depth estimation for more accurate distance calculation
-=======
     // Use depth estimation to calculate distance from camera to selected point
->>>>>>> 71abcb3 (push depth pro onnx)
-    Future.delayed(Duration(milliseconds: 1500), () async {
+    Future.delayed(Duration(milliseconds: 500), () async {
       if (!mounted) return;
 
       double finalDistance = 0.0;
 
       try {
-<<<<<<< HEAD
-        // If depth service is initialized, use it for more accurate measurement
-        if (_depthService.isInitialized && _currentDepthMap != null) {
-          // Get screen size for normalization
-          final screenSize = MediaQuery.of(context).size;
-          
-          // Normalize coordinates to 0-1 range
-          final normX1 = _selectedPoints[0].dx / screenSize.width;
-          final normY1 = _selectedPoints[0].dy / screenSize.height;
-          final normX2 = _selectedPoints[1].dx / screenSize.width;
-          final normY2 = _selectedPoints[1].dy / screenSize.height;
-          
-          // Get depth values at both points
-          final depth1 = _depthService.getDepthAt(_currentDepthMap!, normX1, normY1);
-          final depth2 = _depthService.getDepthAt(_currentDepthMap!, normX2, normY2);
-          
-          // Calculate 3D distance (simplified)
-          final dx = _selectedPoints[1].dx - _selectedPoints[0].dx;
-          final dy = _selectedPoints[1].dy - _selectedPoints[0].dy;
-          final dz = (depth2 - depth1) * 1000; // Scale depth difference
-          
-          final pixelDistance = math.sqrt(dx * dx + dy * dy + dz * dz);
-          
-          // Convert to real world distance (this would be calibrated)
-          double distanceInFeet = pixelDistance * 0.005; // More realistic conversion
-          finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
-        } else {
-          // Fallback to simple pixel-based calculation
-          final pixelDistance = math.sqrt(
-              math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
-                  math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
-
-          // Assuming 1 pixel = 0.01 feet for demonstration
-          double distanceInFeet = pixelDistance * 0.01;
-          finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
-        }
-      } catch (e) {
-        debugPrint('Error calculating distance with depth estimation: $e');
-        // Fallback to simple calculation if depth estimation fails
-        final pixelDistance = math.sqrt(
-            math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
-                math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
-
-        double distanceInFeet = pixelDistance * 0.01;
-        finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
-=======
         // If depth service is initialized and we have depth map, use it for accurate measurement
-        if (_depthService.isInitialized && _currentDepthMap != null) {
-          // Get screen size for normalization
-          final screenSize = MediaQuery.of(context).size;
-
-          // Use the depth service to calculate distance to the selected point
-          final distanceInMeters = _depthService.calculateDistanceToPoint(
-            _selectedPoint!.dx / screenSize.width,
-            _selectedPoint!.dy / screenSize.height,
+        if (_depthMeasurementService != null &&
+            _currentDepthMap != null &&
+            _currentDepthMap!.isNotEmpty) {
+          debugPrint(
+            'Calculating distance at point: (${_selectedPoint!.normalized.dx}, ${_selectedPoint!.normalized.dy})',
           );
 
-          // Convert to desired unit
-          finalDistance = _isImperialUnit
-              ? distanceInMeters *
-                    3.28084 // Convert meters to feet
-              : distanceInMeters;
-        } else {
-          // Fallback to simple estimation when depth service is not available
-          final screenSize = MediaQuery.of(context).size;
+          final double distanceInMeters = _depthMeasurementService!
+              .distanceAtNormalizedPoint(
+                normalizedX: _selectedPoint!.normalized.dx,
+                normalizedY: _selectedPoint!.normalized.dy,
+              );
 
-          // Use simple position-based estimation
-          // Objects at the bottom of screen are assumed closer
-          final normalizedY = _selectedPoint!.dy / screenSize.height;
+          debugPrint('Distance in meters: $distanceInMeters');
+
+          if (distanceInMeters > 0) {
+            finalDistance = _isImperialUnit
+                ? distanceInMeters * 3.28084
+                : distanceInMeters;
+          }
+        }
+
+        if (finalDistance == 0.0) {
+          // Fallback to simple estimation when depth service is not available or returns invalid data
+          // Use simple position-based estimation: objects lower in frame assumed closer
+          final normalizedY = _selectedPoint!.normalized.dy;
 
           // Simple linear interpolation: top = 10m, bottom = 1m
           final estimatedDistanceMeters = 10.0 - (normalizedY * 9.0);
 
           finalDistance = _isImperialUnit
-              ? estimatedDistanceMeters *
-                    3.28084 // Convert meters to feet
+              ? estimatedDistanceMeters * 3.28084
               : estimatedDistanceMeters;
+
+          debugPrint('Using fallback distance calculation: $finalDistance');
         }
       } catch (e) {
         debugPrint('Error calculating distance with depth estimation: $e');
 
         // Final fallback to very simple calculation
-        final screenSize = MediaQuery.of(context).size;
-        final normalizedY = _selectedPoint!.dy / screenSize.height;
+        final normalizedY = _selectedPoint!.normalized.dy;
         final estimatedDistanceMeters =
             5.0 - (normalizedY * 4.0); // 1m to 5m range
 
         finalDistance = _isImperialUnit
             ? estimatedDistanceMeters * 3.28084
             : estimatedDistanceMeters;
->>>>>>> 71abcb3 (push depth pro onnx)
       }
 
       if (mounted) {
         setState(() {
-<<<<<<< HEAD
-          _calculatedDistance = finalDistance;
-=======
           _calculatedDistance = finalDistance.clamp(
             0.1,
             100.0,
           ); // Reasonable range
->>>>>>> 71abcb3 (push depth pro onnx)
           _isProcessing = false;
           _showResults = true;
         });
+
+        debugPrint(
+          'Final calculated distance: $_calculatedDistance ${_isImperialUnit ? 'ft' : 'm'}',
+        );
       }
     });
   }
 
   void _onCapture() {
+    if (_isProcessing) return;
+
+    if (_cameraSupported && _cameraController != null) {
+      _captureFrameAndEstimateDepth();
+    } else {
+      setState(() {
+        _isCapturing = true;
+        _selectedPoint = null; // Clear selected point
+        _showResults = false;
+        _currentDepthMap = null;
+        _staticImageBytes = null;
+        _capturedImageSize = null;
+        _showFrozenFrame = _staticImageBytes != null;
+      });
+    }
+  }
+
+  Future<void> _captureFrameAndEstimateDepth() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      debugPrint('❌ Camera not ready');
+      return;
+    }
+
+    debugPrint('📸 Starting capture process...');
     setState(() {
-      _isCapturing = true;
-<<<<<<< HEAD
-      _selectedPoints.clear();
-=======
-      _selectedPoint = null; // Clear selected point
->>>>>>> 71abcb3 (push depth pro onnx)
+      _isProcessing = true;
       _showResults = false;
+      _selectedPoint = null;
     });
+
+    try {
+      // 1. Capture gambar terlebih dahulu
+      debugPrint('📸 Step 1: Taking picture...');
+      final capturedFile = await _cameraController!.takePicture();
+      final bytes = await capturedFile.readAsBytes();
+      debugPrint('✅ Picture taken, size: ${bytes.length} bytes');
+
+      final Size? imageSize = await _decodeImageSize(bytes);
+      debugPrint('📐 Image size: ${imageSize?.width} x ${imageSize?.height}');
+
+      // 2. Pause preview SETELAH capture berhasil
+      debugPrint('⏸️ Step 2: Pausing camera preview...');
+      try {
+        await _cameraController!.pausePreview();
+        if (mounted) {
+          setState(() {
+            _isPreviewPaused = true;
+          });
+        }
+        debugPrint('✅ Camera preview paused');
+      } catch (pauseError) {
+        debugPrint('⚠️ Unable to pause preview: $pauseError');
+      }
+
+      // 3. Tampilkan gambar yang di-capture (freeze frame)
+      debugPrint('🖼️ Step 3: Displaying frozen frame...');
+      if (!mounted) return;
+      // Downscale preview to reduce UI memory usage on low-end devices
+      final previewBytes = await _downscaleForPreview(bytes, maxWidth: 1080);
+      setState(() {
+        _staticImageBytes = previewBytes ?? bytes;
+        _capturedImageSize = imageSize;
+        _showFrozenFrame = true;
+      });
+      debugPrint(
+        '✅ Frozen frame displayed, showFrozenFrame: $_showFrozenFrame',
+      );
+
+      // 4. Proses depth estimation (ini yang memakan waktu)
+      if (!_depthService.isInitialized) {
+        debugPrint('🔧 Initializing depth service...');
+        await _depthService.initialize();
+      }
+
+      debugPrint('🧠 Step 4: Starting depth estimation...');
+      // Jalankan inference dari file path untuk menekan penggunaan RAM
+      final depth = await _depthService.estimateDepthFromFile(
+        capturedFile.path,
+      );
+      debugPrint(
+        '✅ Depth estimation completed. Depth map size: ${depth.length}',
+      );
+
+      if (!mounted) return;
+
+      // 5. Update state dengan hasil depth estimation
+      debugPrint('💾 Step 5: Updating state with depth map...');
+      setState(() {
+        _currentDepthMap = depth;
+        _isCapturing = true;
+        _isProcessing = false;
+        _calculatedDistance = null;
+      });
+
+      _updateMeasurementService();
+      debugPrint(
+        '✅ All done! Ready for point selection. isCapturing: $_isCapturing',
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Frame captured. Tap a point to measure depth.'),
+          backgroundColor: AppTheme.accentLight,
+        ),
+      );
+    } catch (e) {
+      debugPrint('❌ Error capturing frame: $e');
+      try {
+        if (_isPreviewPaused) {
+          await _cameraController?.resumePreview();
+          if (mounted) {
+            setState(() {
+              _isPreviewPaused = false;
+            });
+          }
+        }
+      } catch (resumeError) {
+        debugPrint('Failed to resume preview after error: $resumeError');
+      }
+      if (!mounted) return;
+
+      setState(() {
+        _isProcessing = false;
+        _isCapturing = false;
+        _showFrozenFrame = false;
+        _staticImageBytes = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to capture frame: ${e.toString()}'),
+          backgroundColor: AppTheme.errorLight,
+        ),
+      );
+    }
   }
 
   void _onReset() {
+    if (_isPreviewPaused) {
+      _cameraController?.resumePreview().catchError((e) {
+        debugPrint('Failed to resume preview on reset: $e');
+      });
+      _isPreviewPaused = false;
+    }
+
     setState(() {
-<<<<<<< HEAD
-      _selectedPoints.clear();
-=======
       _selectedPoint = null; // Clear selected point
->>>>>>> 71abcb3 (push depth pro onnx)
       _isCapturing = false;
       _isProcessing = false;
       _calculatedDistance = null;
       _showResults = false;
-<<<<<<< HEAD
-=======
       _staticImageBytes = null;
       _currentDepthMap = null;
->>>>>>> 71abcb3 (push depth pro onnx)
+      _capturedImageSize = null;
+      _showFrozenFrame = false;
+      _depthMeasurementService = null;
     });
   }
 
@@ -469,6 +522,9 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       "unit": _isImperialUnit ? "ft" : "m",
       "timestamp": DateTime.now(),
       "accuracy": "±5%",
+      "imageBytes": _staticImageBytes, // Simpan gambar yang sudah diproses
+      "selectedPoint": _selectedPoint?.normalized, // Simpan titik yang dipilih
+      "depthMap": _currentDepthMap, // Simpan depth map jika ada
     };
 
     setState(() {
@@ -489,13 +545,6 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   void _onShare() {
     if (_calculatedDistance == null) return;
 
-<<<<<<< HEAD
-    final unit = _isImperialUnit ? "ft" : "m";
-    final shareText =
-        'Distance Measurement: ${_calculatedDistance!.toStringAsFixed(2)} $unit\nMeasured with DistanceMeter App';
-
-=======
->>>>>>> 71abcb3 (push depth pro onnx)
     // In a real app, you would use share_plus package
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -535,7 +584,7 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     _cameraController?.dispose();
     _cameraController = CameraController(
       newCamera,
-      kIsWeb ? ResolutionPreset.medium : ResolutionPreset.high,
+      ResolutionPreset.medium,
       enableAudio: false,
     );
 
@@ -574,6 +623,39 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     _saveSettings();
   }
 
+  Future<void> _openCalibration() async {
+    final result = await Navigator.pushNamed(context, '/calibration-setup');
+    if (!mounted) return;
+
+    if (result is Map<String, dynamic>) {
+      final double? factor = (result['calibrationFactor'] as num?)?.toDouble();
+      final double? accuracy = (result['accuracy'] as num?)?.toDouble();
+      final String? objectUsed = result['objectUsed'] as String?;
+
+      setState(() {
+        if (factor != null && factor > 0) {
+          _calibrationScale = factor;
+        }
+        _lastCalibrationAccuracy = accuracy;
+        _lastCalibrationObject = objectUsed;
+      });
+
+      _updateMeasurementService();
+      await _saveSettings();
+
+      if (factor != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Calibration updated using ${objectUsed ?? 'reference object'}',
+            ),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    }
+  }
+
   void _toggleHistory() {
     setState(() {
       _isHistoryExpanded = !_isHistoryExpanded;
@@ -607,12 +689,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       builder: (context) => AlertDialog(
         title: Text('Camera Permission Required'),
         content: Text(
-<<<<<<< HEAD
-            'This app needs camera access to measure distances. Please grant camera permission in settings.'),
-=======
           'This app needs camera access to measure distances. Please grant camera permission in settings.',
         ),
->>>>>>> 71abcb3 (push depth pro onnx)
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -653,15 +731,9 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
         content: Text(message),
         duration: Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-<<<<<<< HEAD
-        backgroundColor: message.contains('success') 
-          ? Colors.green 
-          : Colors.red,
-=======
         backgroundColor: message.contains('success')
             ? Colors.green
             : Colors.red,
->>>>>>> 71abcb3 (push depth pro onnx)
       ),
     );
   }
@@ -674,21 +746,17 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
         children: [
           // Camera Preview
           CameraPreviewWidget(
-<<<<<<< HEAD
-            cameraController: _cameraController,
-            selectedPoints: _selectedPoints,
-            onPointSelected: _onPointSelected,
-            isCapturing: _isCapturing,
-            depthMap: _currentDepthMap,
-=======
             cameraController: _cameraSupported ? _cameraController : null,
             selectedPoint:
                 _selectedPoint, // Changed from selectedPoints to selectedPoint
             onPointSelected: _onPointSelected,
             isCapturing: _isCapturing,
+            showFrozenFrame: _showFrozenFrame,
             depthMap: _currentDepthMap,
             staticImageBytes: _staticImageBytes,
->>>>>>> 71abcb3 (push depth pro onnx)
+            capturedImageSize: _capturedImageSize,
+            calculatedDistance: _calculatedDistance,
+            unit: _isImperialUnit ? 'ft' : 'm',
           ),
 
           // Top Bar
@@ -697,24 +765,12 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
             onToggleUnit: _toggleUnit,
             onOpenSettings: () =>
                 Navigator.pushNamed(context, '/settings-screen'),
-            onOpenCalibration: () =>
-                Navigator.pushNamed(context, '/calibration-setup'),
+            onOpenCalibration: () {
+              _openCalibration();
+            },
           ),
 
           // Camera Settings
-<<<<<<< HEAD
-          CameraSettingsWidget(
-            cameraController: _cameraController,
-            isFlashOn: _isFlashOn,
-            isFrontCamera: _isFrontCamera,
-            zoomLevel: _zoomLevel,
-            onToggleFlash: _toggleFlash,
-            onSwitchCamera: _switchCamera,
-            onZoomChanged: _onZoomChanged,
-            onFocusTap: _onFocusTap,
-            onShowFeedback: _showCameraFeedback,
-          ),
-=======
           if (_cameraSupported)
             CameraSettingsWidget(
               cameraController: _cameraController,
@@ -727,23 +783,19 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
               onFocusTap: _onFocusTap,
               onShowFeedback: _showCameraFeedback,
             ),
->>>>>>> 71abcb3 (push depth pro onnx)
 
           // Measurement Controls
           MeasurementControlsWidget(
             isCapturing: _isCapturing,
             isProcessing: _isProcessing,
-<<<<<<< HEAD
-            selectedPointsCount: _selectedPoints.length,
-=======
             selectedPointsCount: _selectedPoint != null
                 ? 1
                 : 0, // Update to use single point
->>>>>>> 71abcb3 (push depth pro onnx)
             onCapture: _onCapture,
             onReset: _onReset,
             onSave: _onSave,
             onShare: _onShare,
+            onLoadImage: _pickImageAndProcess,
           ),
 
           // Measurement Results
@@ -788,8 +840,36 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
                 ),
               ),
             ),
-<<<<<<< HEAD
-=======
+
+          // Processing overlay (for depth estimation)
+          if (_isProcessing)
+            Container(
+              color: Colors.black.withOpacity(0.7),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      color: AppTheme.lightTheme.primaryColor,
+                    ),
+                    SizedBox(height: 2.h),
+                    Text(
+                      'Processing depth estimation...',
+                      style: AppTheme.lightTheme.textTheme.bodyLarge?.copyWith(
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: 1.h),
+                    Text(
+                      'Please wait...',
+                      style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
 
           // Desktop info banner if camera unsupported
           if (!_cameraSupported)
@@ -800,7 +880,7 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.6),
+                  color: Colors.black.withOpacity(0.6),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -828,13 +908,10 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
                 label: const Text('Load Image'),
               ),
             ),
->>>>>>> 71abcb3 (push depth pro onnx)
         ],
       ),
     );
   }
-<<<<<<< HEAD
-=======
 
   Future<void> _pickImageAndProcess() async {
     try {
@@ -849,10 +926,16 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
 
       final path = file.path;
       final bytes = file.bytes ?? await File(path!).readAsBytes();
+      final Size? imageSize = await _decodeImageSize(bytes);
 
       setState(() {
         _staticImageBytes = bytes;
+        _capturedImageSize = imageSize;
         _isCapturing = true; // enable point selection overlay
+        _showFrozenFrame = true;
+        _isPreviewPaused = true;
+        _selectedPoint = null;
+        _showResults = false;
       });
 
       // Show processing dialog
@@ -890,6 +973,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
         setState(() {
           _currentDepthMap = depth;
         });
+
+        _updateMeasurementService();
 
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
@@ -932,5 +1017,44 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       }
     }
   }
->>>>>>> 71abcb3 (push depth pro onnx)
+
+  Future<Size?> _decodeImageSize(Uint8List bytes) async {
+    try {
+      final ui.Codec codec = await ui.instantiateImageCodec(bytes);
+      final ui.FrameInfo frame = await codec.getNextFrame();
+      final Size size = Size(
+        frame.image.width.toDouble(),
+        frame.image.height.toDouble(),
+      );
+      frame.image.dispose();
+      codec.dispose();
+      return size;
+    } catch (e) {
+      debugPrint('Image size decode error: $e');
+      return null;
+    }
+  }
+
+  // Downscale image bytes for preview to avoid keeping very large frames in memory.
+  Future<Uint8List?> _downscaleForPreview(
+    Uint8List bytes, {
+    int maxWidth = 1080,
+  }) async {
+    try {
+      final ui.Codec codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: maxWidth,
+      );
+      final ui.FrameInfo frame = await codec.getNextFrame();
+      final ui.Image img = frame.image;
+      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+      img.dispose();
+      codec.dispose();
+      if (byteData == null) return null;
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      debugPrint('Preview downscale error: $e');
+      return null;
+    }
+  }
 }

@@ -48,8 +48,12 @@ class MeasurementHistoryWidget extends StatelessWidget {
                   children: [
                     // Header
                     Container(
-                      padding: EdgeInsets.fromLTRB(4.w,
-                          MediaQuery.of(context).padding.top + 2.h, 4.w, 2.h),
+                      padding: EdgeInsets.fromLTRB(
+                        4.w,
+                        MediaQuery.of(context).padding.top + 2.h,
+                        4.w,
+                        2.h,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.lightTheme.primaryColor,
                       ),
@@ -66,9 +70,9 @@ class MeasurementHistoryWidget extends StatelessWidget {
                               'Measurement History',
                               style: AppTheme.lightTheme.textTheme.titleMedium
                                   ?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                           ),
                         ],
@@ -84,7 +88,9 @@ class MeasurementHistoryWidget extends StatelessWidget {
                               itemCount: measurements.length,
                               itemBuilder: (context, index) {
                                 return _buildMeasurementItem(
-                                    measurements[index], index);
+                                  measurements[index],
+                                  index,
+                                );
                               },
                             ),
                     ),
@@ -136,8 +142,9 @@ class MeasurementHistoryWidget extends StatelessWidget {
         children: [
           CustomIconWidget(
             iconName: 'straighten',
-            color: AppTheme.lightTheme.colorScheme.onSurfaceVariant
-                .withValues(alpha: 0.5),
+            color: AppTheme.lightTheme.colorScheme.onSurfaceVariant.withValues(
+              alpha: 0.5,
+            ),
             size: 15.w,
           ),
           SizedBox(height: 2.h),
@@ -191,8 +198,9 @@ class MeasurementHistoryWidget extends StatelessWidget {
             color: AppTheme.lightTheme.colorScheme.surface,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: AppTheme.lightTheme.colorScheme.outline
-                  .withValues(alpha: 0.3),
+              color: AppTheme.lightTheme.colorScheme.outline.withValues(
+                alpha: 0.3,
+              ),
               width: 1,
             ),
           ),
@@ -203,25 +211,41 @@ class MeasurementHistoryWidget extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
                     children: [
-                      Text(
-                        distance.toStringAsFixed(2),
-                        style:
-                            AppTheme.lightTheme.textTheme.titleLarge?.copyWith(
-                          color: AppTheme.lightTheme.primaryColor,
-                          fontWeight: FontWeight.w600,
+                      if (measurement['thumbnail'] != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            measurement['thumbnail'],
+                            width: 14.w,
+                            height: 14.w,
+                            fit: BoxFit.cover,
+                          ),
                         ),
-                      ),
-                      SizedBox(width: 1.w),
-                      Text(
-                        unit,
-                        style:
-                            AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
-                          color: AppTheme.lightTheme.primaryColor,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      if (measurement['thumbnail'] != null)
+                        SizedBox(width: 3.w),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          Text(
+                            distance.toStringAsFixed(2),
+                            style: AppTheme.lightTheme.textTheme.titleLarge
+                                ?.copyWith(
+                                  color: AppTheme.lightTheme.primaryColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          SizedBox(width: 1.w),
+                          Text(
+                            unit,
+                            style: AppTheme.lightTheme.textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: AppTheme.lightTheme.primaryColor,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

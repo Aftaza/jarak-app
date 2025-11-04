@@ -7,10 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sizer/sizer.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 
 import '../../core/app_export.dart';
-import '../../services/depth_estimation_service.dart';
+import '../../services/onnx_depth_estimation_service.dart';
 import '../../theme/app_theme.dart';
 import './widgets/camera_preview_widget.dart';
 import './widgets/camera_settings_widget.dart';
@@ -36,8 +35,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   bool _isFrontCamera = false;
   double _zoomLevel = 1.0;
 
-  // Depth estimation service
-  final DepthEstimationService _depthService = DepthEstimationService();
+  // ONNX depth estimation service
+  final OnnxDepthEstimationService _depthService = OnnxDepthEstimationService();
   Float32List? _currentDepthMap;
 
   // Measurement related variables
@@ -45,6 +44,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   bool _isCapturing = false;
   bool _isProcessing = false;
   double? _calculatedDistance;
+  double? _pixelDistance;
+  double? _depthDifference;
   bool _showResults = false;
 
   // Settings
@@ -167,13 +168,13 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   Future<void> _initializeDepthService() async {
     try {
       await _depthService.initialize();
-      debugPrint('Depth estimation service initialized successfully');
+      debugPrint('ONNX depth estimation service initialized successfully');
     } catch (e) {
-      debugPrint('Failed to initialize depth estimation service: $e');
+      debugPrint('Failed to initialize ONNX depth estimation service: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to initialize depth estimation service'),
+            content: Text('Failed to initialize ONNX depth estimation service'),
             backgroundColor: AppTheme.errorLight,
           ),
         );
@@ -259,29 +260,55 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
           final normX2 = _selectedPoints[1].dx / screenSize.width;
           final normY2 = _selectedPoints[1].dy / screenSize.height;
           
+          // Calculate pixel distance between the two points
+          final pixelDistance = _depthService.calculatePixelDistance(
+            _selectedPoints[0].dx, 
+            _selectedPoints[0].dy, 
+            _selectedPoints[1].dx, 
+            _selectedPoints[1].dy
+          );
+          
           // Get depth values at both points
           final depth1 = _depthService.getDepthAt(_currentDepthMap!, normX1, normY1);
           final depth2 = _depthService.getDepthAt(_currentDepthMap!, normX2, normY2);
           
-          // Calculate 3D distance (simplified)
-          final dx = _selectedPoints[1].dx - _selectedPoints[0].dx;
-          final dy = _selectedPoints[1].dy - _selectedPoints[0].dy;
-          final dz = (depth2 - depth1) * 1000; // Scale depth difference
+          // Calculate depth difference between the two points
+          final depthDifference = _depthService.calculateDepthDifference(
+            _currentDepthMap!, normX1, normY1, normX2, normY2
+          );
           
-          final pixelDistance = math.sqrt(dx * dx + dy * dy + dz * dz);
+          // Calculate both the pixel distance and depth difference as required
+          // Pixel distance: sqrt(dx² + dy²)
+          // Depth difference: |depth2 - depth1|
           
-          // Convert to real world distance (this would be calibrated)
-          double distanceInFeet = pixelDistance * 0.005; // More realistic conversion
-          finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
+          // In real-world applications, you would need camera calibration to convert
+          // pixel distances to real-world measurements. For now, we'll return the
+          // depth difference as the primary measurement in meters, as that's what
+          // the depth estimation model provides
+          
+          // The depth difference is already in meters from the ONNX model
+          finalDistance = depthDifference; // This is the depth difference in meters
+          
+          // Store the calculated values to display in the UI
+          setState(() {
+            _pixelDistance = pixelDistance;
+            _depthDifference = depthDifference;
+          });
         } else {
           // Fallback to simple pixel-based calculation
           final pixelDistance = math.sqrt(
               math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
                   math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
 
-          // Assuming 1 pixel = 0.01 feet for demonstration
-          double distanceInFeet = pixelDistance * 0.01;
-          finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
+          // For fallback, assume 100 pixels = 1 meter as an example
+          double distanceInMeters = pixelDistance * 0.01;
+          finalDistance = distanceInMeters;
+          
+          // Store the calculated values to display in the UI
+          setState(() {
+            _pixelDistance = pixelDistance;
+            _depthDifference = null; // No depth data available without the model
+          });
         }
       } catch (e) {
         debugPrint('Error calculating distance with depth estimation: $e');
@@ -290,8 +317,14 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
             math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
                 math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
 
-        double distanceInFeet = pixelDistance * 0.01;
-        finalDistance = _isImperialUnit ? distanceInFeet : distanceInFeet * 0.3048;
+        double distanceInMeters = pixelDistance * 0.01;
+        finalDistance = distanceInMeters;
+        
+        // Store the calculated values to display in the UI
+        setState(() {
+          _pixelDistance = pixelDistance;
+          _depthDifference = null; // Error occurred, so no depth data
+        });
       }
 
       if (mounted) {
@@ -304,12 +337,70 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     });
   }
 
-  void _onCapture() {
-    setState(() {
-      _isCapturing = true;
-      _selectedPoints.clear();
-      _showResults = false;
-    });
+  void _onCapture() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    try {
+      // Capture image from camera
+      final image = await _cameraController!.takePicture();
+      
+      setState(() {
+        _isCapturing = true;
+        _selectedPoints.clear();
+        _showResults = false;
+        _isProcessing = true;
+      });
+
+      // Process image with ONNX model
+      if (_depthService.isInitialized) {
+        final depthMap = await _depthService.estimateDepthFromFile(image.path);
+        setState(() {
+          _currentDepthMap = depthMap;
+          _isProcessing = false;
+        });
+        
+        // Show a success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Image captured and depth map generated'),
+              backgroundColor: AppTheme.accentLight,
+            ),
+          );
+        }
+      } else {
+        // If depth service is not initialized, show an error
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Depth estimation service not available'),
+              backgroundColor: AppTheme.errorLight,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error capturing and processing image: $e');
+      
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error capturing image: ${e.toString()}'),
+            backgroundColor: AppTheme.errorLight,
+          ),
+        );
+      }
+    }
   }
 
   void _onReset() {
@@ -566,12 +657,14 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
           // Measurement Results
           MeasurementResultsWidget(
             distance: _calculatedDistance,
-            unit: _isImperialUnit ? 'ft' : 'm',
+            unit: 'm', // Always display in meters as per new requirements
             isVisible: _showResults,
             onClose: () => setState(() => _showResults = false),
             onSave: _onSave,
             onShare: _onShare,
             onRetake: _onReset,
+            pixelDistance: _pixelDistance,
+            depthDifference: _depthDifference,
           ),
 
           // Measurement History

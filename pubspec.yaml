@@ -42,7 +42,7 @@ dependencies:
   permission_handler: ^12.0.1
   camera: ^0.11.2
   cached_network_image: ^3.4.1
-  tflite_flutter: ^0.11.0
+  onnxruntime: ^1.0.0
   image: ^4.0.17
 
 dev_dependencies:

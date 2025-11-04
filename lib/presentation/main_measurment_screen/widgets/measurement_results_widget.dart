@@ -11,6 +11,8 @@ class MeasurementResultsWidget extends StatelessWidget {
   final VoidCallback onSave;
   final VoidCallback onShare;
   final VoidCallback onRetake;
+  final double? pixelDistance;
+  final double? depthDifference;
 
   const MeasurementResultsWidget({
     Key? key,
@@ -21,6 +23,8 @@ class MeasurementResultsWidget extends StatelessWidget {
     required this.onSave,
     required this.onShare,
     required this.onRetake,
+    this.pixelDistance,
+    this.depthDifference,
   }) : super(key: key);
 
   @override
@@ -131,7 +135,7 @@ class MeasurementResultsWidget extends StatelessWidget {
                     ),
                     SizedBox(height: 1.h),
                     Text(
-                      'Distance between selected points',
+                      'Depth-based distance measurement',
                       style: AppTheme.lightTheme.textTheme.bodyMedium?.copyWith(
                         color: AppTheme.lightTheme.colorScheme.onSurfaceVariant,
                       ),
@@ -232,9 +236,23 @@ class MeasurementResultsWidget extends StatelessWidget {
           _buildDetailRow(
             icon: 'straighten',
             label: 'Measurement Type',
-            value: 'Point-to-Point Distance',
+            value: 'Depth-based Distance',
           ),
           SizedBox(height: 2.h),
+          if (pixelDistance != null)
+            _buildDetailRow(
+              icon: 'space_bar',
+              label: 'Pixel Distance',
+              value: '${pixelDistance!.toStringAsFixed(2)} px',
+            ),
+          if (pixelDistance != null) SizedBox(height: 2.h),
+          if (depthDifference != null)
+            _buildDetailRow(
+              icon: 'height',
+              label: 'Depth Difference',
+              value: '${depthDifference!.toStringAsFixed(2)} m',
+            ),
+          if (depthDifference != null) SizedBox(height: 2.h),
           _buildDetailRow(
             icon: 'schedule',
             label: 'Measured At',
@@ -244,7 +262,7 @@ class MeasurementResultsWidget extends StatelessWidget {
           _buildDetailRow(
             icon: 'precision_manufacturing',
             label: 'Accuracy',
-            value: '±5% (Estimated)',
+            value: '±10% (Estimated)',
           ),
         ],
       ),

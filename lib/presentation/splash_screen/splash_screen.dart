@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:sizer/sizer.dart';
 
 import '../../core/app_export.dart';
+import '../../services/onnx_depth_estimation_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -25,6 +26,9 @@ class _SplashScreenState extends State<SplashScreen>
   bool _isInitializing = true;
   String _initializationStatus = 'Initializing DistanceMeter...';
   double _progress = 0.0;
+  
+  // ONNX depth estimation service
+  final OnnxDepthEstimationService _depthService = OnnxDepthEstimationService();
 
   @override
   void initState() {
@@ -81,10 +85,16 @@ class _SplashScreenState extends State<SplashScreen>
     // Start progress animation
     _progressAnimationController.forward();
 
-    // Simulate ML model loading and initialization steps
-    await _initializeMLModels();
+    // First check camera permissions
     await _checkCameraPermissions();
+    
+    // Then load the ONNX model
+    await _initializeONNXModel();
+    
+    // Initialize camera services
     await _initializeCameraServices();
+    
+    // Prepare measurement algorithms
     await _prepareMeasurementAlgorithms();
 
     // Complete initialization
@@ -101,18 +111,30 @@ class _SplashScreenState extends State<SplashScreen>
     _navigateToNextScreen();
   }
 
-  Future<void> _initializeMLModels() async {
+  Future<void> _initializeONNXModel() async {
     setState(() {
-      _initializationStatus = 'Loading TensorFlow Lite models...';
+      _initializationStatus = 'Loading ONNX depth estimation model...';
       _progress = 0.25;
     });
-    await Future.delayed(const Duration(milliseconds: 600));
+    
+    try {
+      await _depthService.initialize();
+      setState(() {
+        _progress = 0.5;
+      });
+    } catch (e) {
+      print('Error initializing ONNX model: $e');
+      setState(() {
+        _initializationStatus = 'Failed to load model - $e';
+      });
+      await Future.delayed(const Duration(seconds: 2));
+    }
   }
 
   Future<void> _checkCameraPermissions() async {
     setState(() {
       _initializationStatus = 'Checking camera permissions...';
-      _progress = 0.5;
+      _progress = 0.25; // Adjust progress since we now check permissions first
     });
     
     // Check for camera permission
@@ -156,6 +178,7 @@ class _SplashScreenState extends State<SplashScreen>
   void dispose() {
     _logoAnimationController.dispose();
     _progressAnimationController.dispose();
+    _depthService.dispose();
     super.dispose();
   }
 

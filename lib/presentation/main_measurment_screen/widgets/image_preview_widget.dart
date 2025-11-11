@@ -1,38 +1,39 @@
 import 'dart:typed_data';
+import 'dart:io';
 
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/app_export.dart';
 
-class CameraPreviewWidget extends StatelessWidget {
-  final CameraController? cameraController;
+class ImagePreviewWidget extends StatelessWidget {
+  final String? imagePath;
   final List<Offset> selectedPoints;
   final Function(Offset) onPointSelected;
-  final bool isCapturing;
   final bool isProcessing;
   final Float32List? depthMap;
 
-  const CameraPreviewWidget({
+  const ImagePreviewWidget({
     Key? key,
-    required this.cameraController,
+    this.imagePath,
     required this.selectedPoints,
     required this.onPointSelected,
-    required this.isCapturing,
     required this.isProcessing,
     this.depthMap,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    if (cameraController == null || !cameraController!.value.isInitialized) {
+    if (imagePath == null) {
       return Container(
         width: double.infinity,
         height: double.infinity,
         color: Colors.black,
         child: Center(
-          child: CircularProgressIndicator(
-            color: AppTheme.lightTheme.primaryColor,
+          child: Text(
+            'No image captured yet',
+            style: AppTheme.lightTheme.textTheme.bodyLarge?.copyWith(
+              color: Colors.white,
+            ),
           ),
         ),
       );
@@ -40,26 +41,53 @@ class CameraPreviewWidget extends StatelessWidget {
 
     return Stack(
       children: [
-        // Camera Preview
+        // Captured Image with tap gesture detector - This must be on top to receive taps
         Positioned.fill(
           child: GestureDetector(
-            onTapDown: isCapturing && !isProcessing
-                ? (details) {
+            onTapDown: isProcessing
+                ? null
+                : (details) {
                     final RenderBox renderBox =
                         context.findRenderObject() as RenderBox;
                     final localPosition =
                         renderBox.globalToLocal(details.globalPosition);
                     onPointSelected(localPosition);
-                  }
-                : null,
-            child: CameraPreview(cameraController!),
+                  },
+            child: Image.file(
+              File(imagePath!),
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: Colors.black,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.error,
+                          color: AppTheme.errorLight,
+                          size: 48,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Error loading image',
+                          style: AppTheme.lightTheme.textTheme.bodyLarge
+                              ?.copyWith(color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
 
-        // Point Markers and Measurement Line - Must be transparent to taps
+        // Overlay for drawing points and lines - This needs to be above the image to draw points,
+        // but IgnorePointer makes it transparent to taps so they go through to the image below
         if (selectedPoints.isNotEmpty)
           Positioned.fill(
-            child: IgnorePointer( // Make the overlay ignore pointer events so taps go through to the camera preview
+            child: IgnorePointer(
               child: CustomPaint(
                 painter: MeasurementOverlayPainter(
                   points: selectedPoints,
@@ -72,11 +100,11 @@ class CameraPreviewWidget extends StatelessWidget {
           ),
 
         // Capture Mode Overlay - Only show simple text overlay in corner to avoid interfering with point selection
-        if (isCapturing)
+        if (!isProcessing && selectedPoints.length < 2)
           Positioned(
             top: 20,
             left: 20,
-            child: IgnorePointer( // Ignore pointer events on the overlay so taps reach the camera preview
+            child: IgnorePointer( // Ignore pointer events on the overlay so taps reach the image
               child: Container(
                 padding: EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -84,11 +112,9 @@ class CameraPreviewWidget extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  !isProcessing
-                      ? (selectedPoints.isEmpty
-                          ? 'Select first point' 
-                          : 'Select second point')
-                      : 'Processing...',
+                  selectedPoints.isEmpty
+                      ? 'Select first point'
+                      : 'Select second point',
                   style: AppTheme.lightTheme.textTheme.bodyLarge?.copyWith(
                     color: Colors.white,
                     fontWeight: FontWeight.w500,

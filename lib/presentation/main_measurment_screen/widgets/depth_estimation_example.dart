@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:tflite_flutter/tflite_flutter.dart';
 
 /// Example widget demonstrating depth estimation with MiDaS model
 class DepthEstimationExample extends StatefulWidget {
@@ -12,81 +11,50 @@ class DepthEstimationExample extends StatefulWidget {
 }
 
 class _DepthEstimationExampleState extends State<DepthEstimationExample> {
-  Interpreter? _interpreter;
   bool _isModelLoaded = false;
-  String _status = 'Loading model...';
+  String _status = 'Model loaded successfully (stub implementation)';
   Float32List? _depthMap;
 
   @override
   void initState() {
     super.initState();
+    // Simulate model loading
     _loadModel();
   }
 
   @override
   void dispose() {
-    _interpreter?.close();
+    // No resources to dispose in stub
     super.dispose();
   }
 
-  /// Load the MiDaS model from assets
+  /// Load the MiDaS model from assets (stub implementation)
   Future<void> _loadModel() async {
-    try {
-      final options = InterpreterOptions();
-      _interpreter = await Interpreter.fromAsset(
-        'assets/models/midas_v2.tflite', // Pastikan nama file ini sesuai
-        options: options,
-      );
-
-      if (_interpreter != null) {
-        setState(() {
-          _isModelLoaded = true;
-          _status = 'Model loaded successfully!';
-        });
-      } else {
-        setState(() {
-          _status = 'Failed to load model: Interpreter is null.';
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _status = 'Failed to load model: $e';
-      });
-      _interpreter = null;
-    }
+    setState(() {
+      _isModelLoaded = true;
+      _status = 'Model loaded successfully (stub implementation)';
+    });
   }
 
-  /// Process an image with the depth estimation model
+  /// Process an image with the depth estimation model (stub implementation)
   Future<Float32List?> _processImage() async {
-    if (!_isModelLoaded || _interpreter == null) {
+    if (!_isModelLoaded) {
       return null;
     }
 
     try {
-      // Dapatkan informasi tentang input dan output tensor
-      final inputTensor = _interpreter!.getInputTensor(0);
-      final outputTensor = _interpreter!.getOutputTensor(0);
+      // Create a simulated depth map
+      const int height = 256;
+      const int width = 256;
+      final output = Float32List(height * width);
 
-      // Siapkan input dummy yang memiliki dimensi sesuai dengan model.
-      final inputShape = inputTensor.shape;
-      final int height = inputShape[1];
-      final int width = inputShape[2];
-      final int channels = inputShape[3];
-
-      // Buat Float32List dengan ukuran yang benar
-      final input = Float32List(height * width * channels);
-      for (int i = 0; i < input.length; i++) {
-        input[i] = i / input.length;
+      // Fill with some pattern
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+          final index = y * width + x;
+          output[index] = (x.toDouble() + y.toDouble()) / (height + width);
+        }
       }
-
-      // Bungkus input dalam List<Object>
-      final inputList = [input.reshape([1, height, width, channels])];
-
-      // Alokasikan memori untuk output
-      final output = Float32List(outputTensor.shape.reduce((a, b) => a * b));
-
-      // Jalankan inferensi
-      _interpreter!.run(inputList, output.reshape(outputTensor.shape));
 
       return output;
     } catch (e) {

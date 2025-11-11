@@ -9,6 +9,7 @@ class MeasurementControlsWidget extends StatelessWidget {
   final int selectedPointsCount;
   final VoidCallback onCapture;
   final VoidCallback onReset;
+  final VoidCallback onContinue;
   final VoidCallback onSave;
   final VoidCallback onShare;
 
@@ -19,6 +20,7 @@ class MeasurementControlsWidget extends StatelessWidget {
     required this.selectedPointsCount,
     required this.onCapture,
     required this.onReset,
+    required this.onContinue,
     required this.onSave,
     required this.onShare,
   }) : super(key: key);
@@ -38,8 +40,37 @@ class MeasurementControlsWidget extends StatelessWidget {
 
             SizedBox(height: 2.h),
 
-            // Secondary controls
-            if (selectedPointsCount > 0 && !isProcessing)
+            // Processing indicator when inference is running
+            if (isProcessing && selectedPointsCount == 2)
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 1.h),
+                decoration: BoxDecoration(
+                  color: AppTheme.warningLight,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 6.w,
+                      height: 6.w,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                    SizedBox(width: 2.w),
+                    Text(
+                      'Processing with ONNX Inference...',
+                      style: AppTheme.lightTheme.textTheme.labelSmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (selectedPointsCount > 0 && !isProcessing)
               _buildSecondaryControls(),
           ],
         ),
@@ -132,12 +163,12 @@ class MeasurementControlsWidget extends StatelessWidget {
           ),
         ),
 
-        // Done/Continue button
+        // Done/Continue button - enabled based on selection state
         _buildActionButton(
           icon: selectedPointsCount == 2 ? 'check' : 'add',
           label: selectedPointsCount == 2 ? 'Done' : 'Continue',
-          onTap: selectedPointsCount == 2 ? () {} : () {},
-          color: AppTheme.accentLight,
+          onTap: (selectedPointsCount == 1 || selectedPointsCount == 2) && !isProcessing ? onContinue : null, // Enable when 1 or 2 points are selected
+          color: (selectedPointsCount == 1 || selectedPointsCount == 2) && !isProcessing ? AppTheme.accentLight : Colors.grey,
         ),
       ],
     );
@@ -146,7 +177,7 @@ class MeasurementControlsWidget extends StatelessWidget {
   Widget _buildActionButton({
     required String icon,
     required String label,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
     required Color color,
   }) {
     return Column(

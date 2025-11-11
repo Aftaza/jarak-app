@@ -13,6 +13,7 @@ import '../../services/onnx_depth_estimation_service.dart';
 import '../../theme/app_theme.dart';
 import './widgets/camera_preview_widget.dart';
 import './widgets/camera_settings_widget.dart';
+import './widgets/image_preview_widget.dart';
 import './widgets/measurement_controls_widget.dart';
 import './widgets/measurement_history_widget.dart';
 import './widgets/measurement_results_widget.dart';
@@ -43,10 +44,13 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   List<Offset> _selectedPoints = [];
   bool _isCapturing = false;
   bool _isProcessing = false;
+  bool _showCapturedImage = false; // New state to show captured image
+  String? _capturedImagePath; // Store the path of captured image
   double? _calculatedDistance;
   double? _pixelDistance;
   double? _depthDifference;
   bool _showResults = false;
+  bool _secondPointSelectionEnabled = false;
 
   // Settings
   bool _isImperialUnit = true;
@@ -111,10 +115,12 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       final camera = kIsWeb
           ? _cameras.firstWhere(
               (c) => c.lensDirection == CameraLensDirection.front,
-              orElse: () => _cameras.first)
+              orElse: () => _cameras.first,
+            )
           : _cameras.firstWhere(
               (c) => c.lensDirection == CameraLensDirection.back,
-              orElse: () => _cameras.first);
+              orElse: () => _cameras.first,
+            );
 
       // Initialize camera controller
       _cameraController = CameraController(
@@ -152,7 +158,7 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     try {
       // Capture image from camera
       final image = await _cameraController!.takePicture();
-      
+
       // Process image with depth estimation if service is available
       if (_depthService.isInitialized) {
         final depthMap = await _depthService.estimateDepthFromFile(image.path);
@@ -220,23 +226,213 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
   }
 
   void _onPointSelected(Offset point) {
-    if (_selectedPoints.length >= 2) return;
+    // Only allow point selection if we have a captured image
+    if (!_showCapturedImage) return;
 
     setState(() {
-      _selectedPoints.add(point);
+      if (_selectedPoints.isEmpty) {
+        // Selecting the first point
+        _selectedPoints.add(point);
+        _secondPointSelectionEnabled = false; // Ensure second point selection is not enabled yet
+      } else if (_selectedPoints.length == 1 && _secondPointSelectionEnabled) {
+        // Selecting the second point
+        _selectedPoints.add(point);
+        _secondPointSelectionEnabled = false; // Disable second point selection after it's added
+      }
     });
 
     // Provide haptic feedback
     HapticFeedback.lightImpact();
 
-    // If we have two points, calculate distance
-    if (_selectedPoints.length == 2) {
-      _calculateDistance();
+    // Show feedback to user
+    if (_selectedPoints.length == 1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'First point selected. Click Continue to select second point.',
+            ),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    } else if (_selectedPoints.length == 2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Second point selected. Click Continue to process.'),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _startProcessingWithInference() async {
+    if (_selectedPoints.length != 2 || _capturedImagePath == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Please select exactly 2 points and capture an image first.'),
+            backgroundColor: AppTheme.errorLight,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      // Show loading message to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Processing image with ONNX inference...'),
+            backgroundColor: AppTheme.warningLight,
+          ),
+        );
+      }
+
+      // Check if depth service is initialized
+      if (!_depthService.isInitialized) {
+        throw Exception('ONNX depth estimation service is not initialized');
+      }
+
+      if (_capturedImagePath == null) {
+        throw Exception('No captured image available for processing');
+      }
+
+      // Process image with depth estimation using the captured image
+      final depthMap = await _depthService.estimateDepthFromFile(
+        _capturedImagePath!,
+      );
+
+      setState(() {
+        _currentDepthMap = depthMap;
+      });
+
+      // Get screen size for normalization
+      final screenSize = MediaQuery.of(context).size;
+
+      // Normalize coordinates to 0-1 range
+      final normX1 = _selectedPoints[0].dx / screenSize.width;
+      final normY1 = _selectedPoints[0].dy / screenSize.height;
+      final normX2 = _selectedPoints[1].dx / screenSize.width;
+      final normY2 = _selectedPoints[1].dy / screenSize.height;
+
+      // Calculate pixel distance between the two points
+      final pixelDistance = _depthService.calculatePixelDistance(
+        _selectedPoints[0].dx,
+        _selectedPoints[0].dy,
+        _selectedPoints[1].dx,
+        _selectedPoints[1].dy,
+      );
+
+      // Get depth values at both points
+      final depth1 = _depthService.getDepthAt(
+        _currentDepthMap!,
+        normX1,
+        normY1,
+      );
+      final depth2 = _depthService.getDepthAt(
+        _currentDepthMap!,
+        normX2,
+        normY2,
+      );
+
+      // Calculate depth difference between the two points
+      final depthDifference = _depthService.calculateDepthDifference(
+        _currentDepthMap!,
+        normX1,
+        normY1,
+        normX2,
+        normY2,
+      );
+
+      // Calculate real-world 3D distance using depth estimation
+      final realWorldDistance = _depthService.calculateRealWorldDistance(
+        _currentDepthMap!,
+        normX1,
+        normY1,
+        normX2,
+        normY2,
+        screenSize,
+      );
+
+      // Store the calculated values to display in the UI
+      setState(() {
+        _pixelDistance = pixelDistance;
+        _depthDifference = depthDifference;
+        _calculatedDistance = realWorldDistance; // Use the real-world distance as the final result
+        _isProcessing = false;
+        _showResults = true;
+      });
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Measurement completed successfully'),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error during inference processing: $e');
+
+      // Show error to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: AppTheme.errorLight,
+          ),
+        );
+      }
+
+      // Fallback to simple calculation if anything fails
+      final pixelDistance = math.sqrt(
+        math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
+            math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2),
+      );
+
+      double distanceInMeters = pixelDistance * 0.01;
+
+      // Store the calculated values to display in the UI
+      setState(() {
+        _pixelDistance = pixelDistance;
+        _depthDifference = null; // Error occurred, so no depth data
+        _calculatedDistance = distanceInMeters;
+        _isProcessing = false;
+        _showResults = true;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Using fallback calculation due to processing error'),
+            backgroundColor: AppTheme.warningLight,
+          ),
+        );
+      }
     }
   }
 
   void _calculateDistance() {
-    if (_selectedPoints.length != 2) return;
+    if (_selectedPoints.length != 2) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Please select exactly 2 points to calculate distance.'),
+            backgroundColor: AppTheme.errorLight,
+          ),
+        );
+      }
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
@@ -253,42 +449,55 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
         if (_depthService.isInitialized && _currentDepthMap != null) {
           // Get screen size for normalization
           final screenSize = MediaQuery.of(context).size;
-          
+
           // Normalize coordinates to 0-1 range
           final normX1 = _selectedPoints[0].dx / screenSize.width;
           final normY1 = _selectedPoints[0].dy / screenSize.height;
           final normX2 = _selectedPoints[1].dx / screenSize.width;
           final normY2 = _selectedPoints[1].dy / screenSize.height;
-          
+
           // Calculate pixel distance between the two points
           final pixelDistance = _depthService.calculatePixelDistance(
-            _selectedPoints[0].dx, 
-            _selectedPoints[0].dy, 
-            _selectedPoints[1].dx, 
-            _selectedPoints[1].dy
+            _selectedPoints[0].dx,
+            _selectedPoints[0].dy,
+            _selectedPoints[1].dx,
+            _selectedPoints[1].dy,
           );
-          
+
           // Get depth values at both points
-          final depth1 = _depthService.getDepthAt(_currentDepthMap!, normX1, normY1);
-          final depth2 = _depthService.getDepthAt(_currentDepthMap!, normX2, normY2);
-          
+          final depth1 = _depthService.getDepthAt(
+            _currentDepthMap!,
+            normX1,
+            normY1,
+          );
+          final depth2 = _depthService.getDepthAt(
+            _currentDepthMap!,
+            normX2,
+            normY2,
+          );
+
           // Calculate depth difference between the two points
           final depthDifference = _depthService.calculateDepthDifference(
-            _currentDepthMap!, normX1, normY1, normX2, normY2
+            _currentDepthMap!,
+            normX1,
+            normY1,
+            normX2,
+            normY2,
           );
-          
-          // Calculate both the pixel distance and depth difference as required
-          // Pixel distance: sqrt(dx² + dy²)
-          // Depth difference: |depth2 - depth1|
-          
-          // In real-world applications, you would need camera calibration to convert
-          // pixel distances to real-world measurements. For now, we'll return the
-          // depth difference as the primary measurement in meters, as that's what
-          // the depth estimation model provides
-          
-          // The depth difference is already in meters from the ONNX model
-          finalDistance = depthDifference; // This is the depth difference in meters
-          
+
+          // Calculate real-world 3D distance using depth estimation
+          final realWorldDistance = _depthService.calculateRealWorldDistance(
+            _currentDepthMap!,
+            normX1,
+            normY1,
+            normX2,
+            normY2,
+            screenSize,
+          );
+
+          // Use the real-world distance as the final result
+          finalDistance = realWorldDistance;
+
           // Store the calculated values to display in the UI
           setState(() {
             _pixelDistance = pixelDistance;
@@ -297,29 +506,43 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
         } else {
           // Fallback to simple pixel-based calculation
           final pixelDistance = math.sqrt(
-              math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
-                  math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
+            math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
+                math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2),
+          );
 
           // For fallback, assume 100 pixels = 1 meter as an example
           double distanceInMeters = pixelDistance * 0.01;
           finalDistance = distanceInMeters;
-          
+
           // Store the calculated values to display in the UI
           setState(() {
             _pixelDistance = pixelDistance;
-            _depthDifference = null; // No depth data available without the model
+            _depthDifference =
+                null; // No depth data available without the model
           });
         }
       } catch (e) {
         debugPrint('Error calculating distance with depth estimation: $e');
+        
+        // Show error to user
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error in distance calculation: ${e.toString()}'),
+              backgroundColor: AppTheme.errorLight,
+            ),
+          );
+        }
+        
         // Fallback to simple calculation if depth estimation fails
         final pixelDistance = math.sqrt(
-            math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
-                math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2));
+          math.pow(_selectedPoints[1].dx - _selectedPoints[0].dx, 2) +
+              math.pow(_selectedPoints[1].dy - _selectedPoints[0].dy, 2),
+        );
 
         double distanceInMeters = pixelDistance * 0.01;
         finalDistance = distanceInMeters;
-        
+
         // Store the calculated values to display in the UI
         setState(() {
           _pixelDistance = pixelDistance;
@@ -337,62 +560,56 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     });
   }
 
-  void _onCapture() async {
-    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+  Future<void> _onCapture() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized || _isCapturing) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _cameraController == null || !_cameraController!.value.isInitialized
+                  ? 'Camera not initialized yet. Please wait for camera to load.'
+                  : 'Please wait - image capture in progress.',
+            ),
+            backgroundColor: AppTheme.errorLight,
+          ),
+        );
+      }
       return;
     }
+
+    setState(() {
+      _isCapturing = true; // Set capturing flag early to prevent duplicate captures
+    });
 
     try {
       // Capture image from camera
       final image = await _cameraController!.takePicture();
-      
+
       setState(() {
-        _isCapturing = true;
+        _showCapturedImage = true; // Show the captured image
+        _capturedImagePath = image.path; // Store the captured image path
         _selectedPoints.clear();
+        _secondPointSelectionEnabled = false;
         _showResults = false;
-        _isProcessing = true;
       });
 
-      // Process image with ONNX model
-      if (_depthService.isInitialized) {
-        final depthMap = await _depthService.estimateDepthFromFile(image.path);
-        setState(() {
-          _currentDepthMap = depthMap;
-          _isProcessing = false;
-        });
-        
-        // Show a success message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Image captured and depth map generated'),
-              backgroundColor: AppTheme.accentLight,
-            ),
-          );
-        }
-      } else {
-        // If depth service is not initialized, show an error
-        if (mounted) {
-          setState(() {
-            _isProcessing = false;
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Depth estimation service not available'),
-              backgroundColor: AppTheme.errorLight,
-            ),
-          );
-        }
+      // Show the captured image and wait for user to select two points
+      // The image processing will happen after the user selects both points
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Image captured. Now select two points on the image'),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('Error capturing and processing image: $e');
-      
+      debugPrint('Error capturing image: $e');
+      setState(() {
+        _isCapturing = false; // Reset capturing flag on error
+      });
+
       if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error capturing image: ${e.toString()}'),
@@ -403,14 +620,69 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
     }
   }
 
+  void _onContinue() {
+    if (_selectedPoints.length == 1) {
+      // First point selected, enable second point selection
+      setState(() {
+        _secondPointSelectionEnabled = true;
+      });
+
+      // Provide haptic feedback
+      HapticFeedback.selectionClick();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Please select the second point on the image'),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    } else if (_selectedPoints.length == 2) {
+      // Both points selected, start processing
+      _startProcessingWithInference();
+    }
+  }
+
   void _onReset() {
-    setState(() {
-      _selectedPoints.clear();
-      _isCapturing = false;
-      _isProcessing = false;
-      _calculatedDistance = null;
-      _showResults = false;
-    });
+    if (_showCapturedImage && _selectedPoints.isNotEmpty) {
+      // If an image is captured and points are selected, reset only the points
+      setState(() {
+        _selectedPoints.clear();
+        _secondPointSelectionEnabled = false;
+        _isProcessing = false;
+        _calculatedDistance = null;
+        _showResults = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Points reset. Select first point.'),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    } else {
+      // Otherwise, perform a full reset to camera view
+      setState(() {
+        _selectedPoints.clear();
+        _secondPointSelectionEnabled = false; // Reset second point selection flag
+        _isCapturing = false;
+        _showCapturedImage = false; // Reset captured image display
+        _capturedImagePath = null; // Clear captured image path
+        _isProcessing = false;
+        _calculatedDistance = null;
+        _showResults = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Returning to camera view.'),
+            backgroundColor: AppTheme.accentLight,
+          ),
+        );
+      }
+    }
   }
 
   void _onSave() {
@@ -557,7 +829,8 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
       builder: (context) => AlertDialog(
         title: Text('Camera Permission Required'),
         content: Text(
-            'This app needs camera access to measure distances. Please grant camera permission in settings.'),
+          'This app needs camera access to measure distances. Please grant camera permission in settings.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -598,107 +871,180 @@ class _MainMeasurementScreenState extends State<MainMeasurementScreen>
         content: Text(message),
         duration: Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-        backgroundColor: message.contains('success') 
-          ? Colors.green 
-          : Colors.red,
+        backgroundColor: message.contains('success')
+            ? Colors.green
+            : Colors.red,
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          // Camera Preview
-          CameraPreviewWidget(
-            cameraController: _cameraController,
-            selectedPoints: _selectedPoints,
-            onPointSelected: _onPointSelected,
-            isCapturing: _isCapturing,
-            depthMap: _currentDepthMap,
-          ),
+    return PopScope(
+      canPop: !_showCapturedImage, // Allow pop if not showing captured image
+      onPopInvokedWithResult: (bool didPop, Object? result) async {
+        if (didPop) return; // If system handled pop, do nothing
 
-          // Top Bar
-          TopBarWidget(
-            isImperialUnit: _isImperialUnit,
-            onToggleUnit: _toggleUnit,
-            onOpenSettings: () =>
-                Navigator.pushNamed(context, '/settings-screen'),
-            onOpenCalibration: () =>
-                Navigator.pushNamed(context, '/calibration-setup'),
-          ),
+        // If we are showing a captured image, handle back press as a reset
+        if (_showCapturedImage) {
+          _onReset(); // This will intelligently reset points or go back to camera
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          children: [
+            // Display either camera preview or captured image based on state
+            if (_showCapturedImage && _capturedImagePath != null)
+              ImagePreviewWidget(
+                imagePath: _capturedImagePath,
+                selectedPoints: _selectedPoints,
+                onPointSelected: _onPointSelected,
+                isProcessing: _isProcessing,
+                depthMap: _currentDepthMap,
+              )
+            else
+              CameraPreviewWidget(
+                cameraController: _cameraController,
+                selectedPoints: _selectedPoints,
+                onPointSelected: _onPointSelected,
+                isCapturing: _isCapturing,
+                isProcessing: _isProcessing,
+                depthMap: _currentDepthMap,
+              ),
 
-          // Camera Settings
-          CameraSettingsWidget(
-            cameraController: _cameraController,
-            isFlashOn: _isFlashOn,
-            isFrontCamera: _isFrontCamera,
-            zoomLevel: _zoomLevel,
-            onToggleFlash: _toggleFlash,
-            onSwitchCamera: _switchCamera,
-            onZoomChanged: _onZoomChanged,
-            onFocusTap: _onFocusTap,
-            onShowFeedback: _showCameraFeedback,
-          ),
+            // Top Bar
+            TopBarWidget(
+              isImperialUnit: _isImperialUnit,
+              onToggleUnit: _toggleUnit,
+              onOpenSettings: () =>
+                  Navigator.pushNamed(context, '/settings-screen'),
+              onOpenCalibration: () =>
+                  Navigator.pushNamed(context, '/calibration-setup'),
+            ),
 
-          // Measurement Controls
-          MeasurementControlsWidget(
-            isCapturing: _isCapturing,
-            isProcessing: _isProcessing,
-            selectedPointsCount: _selectedPoints.length,
-            onCapture: _onCapture,
-            onReset: _onReset,
-            onSave: _onSave,
-            onShare: _onShare,
-          ),
+            // Camera Settings - Only show when not in captured image mode
+            if (!_showCapturedImage)
+              CameraSettingsWidget(
+                cameraController: _cameraController,
+                isFlashOn: _isFlashOn,
+                isFrontCamera: _isFrontCamera,
+                zoomLevel: _zoomLevel,
+                onToggleFlash: _toggleFlash,
+                onSwitchCamera: _switchCamera,
+                onZoomChanged: _onZoomChanged,
+                onFocusTap: _onFocusTap,
+                onShowFeedback: _showCameraFeedback,
+              ),
 
-          // Measurement Results
-          MeasurementResultsWidget(
-            distance: _calculatedDistance,
-            unit: 'm', // Always display in meters as per new requirements
-            isVisible: _showResults,
-            onClose: () => setState(() => _showResults = false),
-            onSave: _onSave,
-            onShare: _onShare,
-            onRetake: _onReset,
-            pixelDistance: _pixelDistance,
-            depthDifference: _depthDifference,
-          ),
+            // Measurement Controls
+            MeasurementControlsWidget(
+              isCapturing: _isCapturing,
+              isProcessing: _isProcessing,
+              selectedPointsCount: _selectedPoints.length,
+              onCapture: _onCapture,
+              onReset: _onReset,
+              onContinue: _onContinue,
+              onSave: _onSave,
+              onShare: _onShare,
+            ),
 
-          // Measurement History
-          MeasurementHistoryWidget(
-            isExpanded: _isHistoryExpanded,
-            measurements: _measurementHistory,
-            onToggle: _toggleHistory,
-            onDeleteMeasurement: _deleteMeasurement,
-            onSelectMeasurement: _selectMeasurement,
-          ),
+            // Measurement Results - Only show when we have results and are not currently processing points
+            if (_showResults)
+              MeasurementResultsWidget(
+                distance: _calculatedDistance,
+                unit: 'm', // Always display in meters as per new requirements
+                isVisible: _showResults,
+                onClose: () => setState(() => _showResults = false),
+                onSave: _onSave,
+                onShare: _onShare,
+                onRetake: _onReset,
+                pixelDistance: _pixelDistance,
+                depthDifference: _depthDifference,
+              ),
 
-          // Loading overlay
-          if (!_isCameraInitialized)
-            Container(
-              color: Colors.black,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      color: AppTheme.lightTheme.primaryColor,
-                    ),
-                    SizedBox(height: 2.h),
-                    Text(
-                      'Initializing Camera...',
-                      style: AppTheme.lightTheme.textTheme.bodyLarge?.copyWith(
-                        color: Colors.white,
+            // Measurement History - Only show when no points are selected
+            if (_selectedPoints.isEmpty)
+              MeasurementHistoryWidget(
+                isExpanded: _isHistoryExpanded,
+                measurements: _measurementHistory,
+                onToggle: _toggleHistory,
+                onDeleteMeasurement: _deleteMeasurement,
+                onSelectMeasurement: _selectMeasurement,
+              ),
+
+            // Loading overlay
+            if (!_isCameraInitialized)
+              Container(
+                color: Colors.black,
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(
+                        color: AppTheme.lightTheme.primaryColor,
                       ),
-                    ),
-                  ],
+                      SizedBox(height: 2.h),
+                      Text(
+                        'Initializing Camera...',
+                        style: AppTheme.lightTheme.textTheme.bodyLarge
+                            ?.copyWith(color: Colors.white),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+
+            // Processing overlay (loading screen during inference)
+            if (_isProcessing && _selectedPoints.length == 2)
+              Container(
+                color: Colors.black.withValues(alpha: 0.7),
+                child: Center(
+                  child: Container(
+                    padding: EdgeInsets.all(4.w),
+                    margin: EdgeInsets.symmetric(horizontal: 8.w),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 8.w,
+                          height: 8.w,
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              AppTheme.lightTheme.primaryColor,
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: 3.h),
+                        Text(
+                          'Processing Image',
+                          style: AppTheme.lightTheme.textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        SizedBox(height: 1.h),
+                        Text(
+                          'Running ONNX inference...',
+                          style: AppTheme.lightTheme.textTheme.bodyMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: 2.h),
+                        LinearProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            AppTheme.lightTheme.primaryColor,
+                          ),
+                          backgroundColor: Colors.grey[300],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
